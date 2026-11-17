@@ -1,0 +1,6 @@
+{
+  "name": "수현·다현 주간 학습 & 습관 매니저",
+  "description": "평일 학습과 생활습관 채점, 주말 보충 가점, 실시간 남매 유튜브 타이머 및 100칸 칭찬스티커 보드 관리 앱",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
