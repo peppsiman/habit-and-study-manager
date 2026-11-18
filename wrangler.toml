@@ -1,16 +1,8 @@
-name = "kids-edu-schedule-management"
+name = "habit-and-study-manager"
 compatibility_date = "2025-01-01"
 pages_build_output_dir = "dist"
 
-# Cloudflare Pages 배포 시 대시보드(Settings > Bindings) 또는 아래 주석 해제 후 실제 ID를 입력하여 연결하세요.
-#
-# 1) Cloudflare KV 사용 시 (권장):
-# [[kv_namespaces]]
-# binding = "KIDS_EDU_KV"
-# id = "YOUR_KV_NAMESPACE_ID"
-#
-# 2) Cloudflare D1(SQLite) 사용 시 (대안):
-# [[d1_databases]]
-# binding = "KIDS_EDU_DB"
-# database_name = "kids-edu-db"
-# database_id = "YOUR_D1_DATABASE_ID"
+[[kv_namespaces]]
+binding = "KIDS_EDU_KV"
+id = "6292a9aca8344719a28fe2cb17e549c7"
+preview_id = "6292a9aca8344719a28fe2cb17e549c7"
