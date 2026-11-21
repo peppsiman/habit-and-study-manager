@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import {
   AlertCircle,
+  BellRing,
+  CheckCircle2,
   Clock,
   Lock,
   Minus,
@@ -9,11 +11,15 @@ import {
   RotateCcw,
   Square,
   Undo2,
+  Volume2,
+  VolumeX,
   Youtube
 } from 'lucide-react';
 import { CHILDREN_CONFIG } from '../constants';
 import { ChildConfig, ChildData, ChildKey, ScoreSummary, TimersMap } from '../types';
 import { formatMinutesReadable, formatTimer } from '../utils/scoreUtils';
+
+const TIMER_PRESET_MINUTES = [10, 15, 20, 30, 40, 60];
 
 interface YoutubeTimerTabProps {
   currentConfig: ChildConfig;
@@ -22,11 +28,14 @@ interface YoutubeTimerTabProps {
   summaries: Record<ChildKey, ScoreSummary>;
   timers: TimersMap;
   isParentMode: boolean;
+  onSetChildTimerMinutes: (childKey: ChildKey, minutes: number) => void;
   onToggleChildTimer: (childKey: ChildKey) => void;
   onResetChildTimer: (childKey: ChildKey) => void;
-  onFinishAndDeductChildTimer: (childKey: ChildKey) => void;
+  onDismissChildAlarm: (childKey: ChildKey) => void;
+  onDeductChildTimer: (childKey: ChildKey, mode?: 'target' | 'elapsed') => void;
   onStartBothTimers: () => void;
   onPauseBothTimers: () => void;
+  onTestAlarmSound: () => void;
   onDeductYoutube: (minutes: string | number, memo: string) => boolean;
   onUndoWatchLog: (logId: string) => void;
   onOpenLogin: () => void;
@@ -39,17 +48,21 @@ export const YoutubeTimerTab: React.FC<YoutubeTimerTabProps> = ({
   summaries,
   timers,
   isParentMode,
+  onSetChildTimerMinutes,
   onToggleChildTimer,
   onResetChildTimer,
-  onFinishAndDeductChildTimer,
+  onDismissChildAlarm,
+  onDeductChildTimer,
   onStartBothTimers,
   onPauseBothTimers,
+  onTestAlarmSound,
   onDeductYoutube,
   onUndoWatchLog,
   onOpenLogin
 }) => {
   const [customDeductInput, setCustomDeductInput] = useState('');
   const [watchMemoInput, setWatchMemoInput] = useState('');
+  const [draftMinutes, setDraftMinutes] = useState<Partial<Record<ChildKey, string>>>({});
 
   const handleCustomSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -60,6 +73,22 @@ export const YoutubeTimerTab: React.FC<YoutubeTimerTabProps> = ({
     }
   };
 
+  const handleMinuteInputChange = (childKey: ChildKey, rawVal: string) => {
+    setDraftMinutes((prev) => ({ ...prev, [childKey]: rawVal }));
+    const parsed = parseInt(rawVal, 10);
+    if (!isNaN(parsed) && parsed >= 1 && parsed <= 180) {
+      onSetChildTimerMinutes(childKey, parsed);
+    }
+  };
+
+  const handleMinuteInputBlur = (childKey: ChildKey) => {
+    setDraftMinutes((prev) => {
+      const next = { ...prev };
+      delete next[childKey];
+      return next;
+    });
+  };
+
   const remainingRatio =
     scoreSummary.totalEarnedMinutes > 0
       ? Math.min(100, (scoreSummary.remainingMinutes / scoreSummary.totalEarnedMinutes) * 100)
@@ -67,22 +96,30 @@ export const YoutubeTimerTab: React.FC<YoutubeTimerTabProps> = ({
 
   return (
     <section className="space-y-6">
-      {/* Precision Hardware-Inspired Dual Sibling Timer Console */}
+      {/* Countdown Voice-Alarm Dual Sibling Timer Console */}
       <div className="bg-slate-950 text-white rounded-2xl p-5 sm:p-6 border border-slate-800 space-y-5">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-800">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
               <Clock className="w-4 h-4 text-amber-400" />
               <h2 className="text-base sm:text-lg font-bold tracking-tight text-white">
-                수현 · 다현 실시간 유튜브 동시 타이머
+                수현 · 다현 유튜브 카운트다운 알림 타이머
               </h2>
             </div>
             <p className="text-xs text-slate-400">
-              자녀용 화면에서도 시작·일시정지를 조작할 수 있으며, 시간 차감 확정 및 초기화는 부모님 모드에서만 실행됩니다.
+              시청할 시간을 설정하고 시작하면, 종료 시 알림음이 알림 해제까지 반복 재생되며 설정 시간만큼 바로 차감할 수 있습니다.
             </p>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex flex-wrap items-center gap-2 shrink-0">
+            <button
+              type="button"
+              onClick={onTestAlarmSound}
+              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+            >
+              <Volume2 className="w-3.5 h-3.5" />
+              <span>알림음 테스트</span>
+            </button>
             <button
               type="button"
               onClick={onStartBothTimers}
@@ -109,24 +146,46 @@ export const YoutubeTimerTab: React.FC<YoutubeTimerTabProps> = ({
             const sum = summaries[childKey];
             const tState = timers[childKey];
             const isBlue = childKey === 'suhyun';
-            const isNoTimeLeft = !tState.isRunning && sum.remainingMinutes <= 0;
+            const totalTargetSec = Math.max(60, tState.targetMinutes * 60);
+            const isRinging = Boolean(tState.isAlarmRinging);
+            const isFinished = tState.remainingSeconds === 0;
+            const isStarted = tState.remainingSeconds < totalTargetSec;
+            const isPaused = !tState.isRunning && isStarted && !isFinished;
+            const isNoTimeLeft = !tState.isRunning && !isRinging && sum.remainingMinutes <= 0;
+            const exceedsRemaining =
+              sum.remainingMinutes > 0 && tState.targetMinutes > sum.remainingMinutes;
+            const canEditDuration = !tState.isRunning && !isRinging;
+            const progressPct = Math.min(
+              100,
+              Math.max(0, (tState.remainingSeconds / totalTargetSec) * 100)
+            );
+            const elapsedSec = Math.max(0, totalTargetSec - tState.remainingSeconds);
+            const elapsedMins = Math.max(1, Math.round(elapsedSec / 60));
+            const targetDeductAmt =
+              sum.remainingMinutes > 0
+                ? Math.min(tState.targetMinutes, sum.remainingMinutes)
+                : 0;
 
             return (
               <div
                 key={childKey}
-                className={`rounded-2xl p-4 sm:p-5 border transition-colors ${
-                  tState.isRunning
+                className={`rounded-2xl p-4 sm:p-5 border transition-colors space-y-4 ${
+                  isRinging
+                    ? 'bg-red-950/40 border-red-500 ring-2 ring-red-500/40 animate-pulse'
+                    : tState.isRunning
                     ? isBlue
                       ? 'bg-slate-900 border-blue-500/70'
                       : 'bg-slate-900 border-rose-500/70'
+                    : isFinished
+                    ? 'bg-slate-900 border-amber-500/60'
                     : 'bg-slate-900/60 border-slate-800'
                 }`}
               >
-                <div className="flex items-start justify-between gap-4 mb-4">
-                  <div className="space-y-1">
-                    <div className="flex items-center gap-2">
+                <div className="flex items-start justify-between gap-4">
+                  <div className="space-y-1 min-w-0">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <span
-                        className={`w-6 h-6 rounded-lg text-xs font-bold flex items-center justify-center ${
+                        className={`w-6 h-6 rounded-lg text-xs font-bold flex items-center justify-center shrink-0 ${
                           isBlue ? 'bg-blue-600 text-white' : 'bg-rose-600 text-white'
                         }`}
                       >
@@ -135,11 +194,24 @@ export const YoutubeTimerTab: React.FC<YoutubeTimerTabProps> = ({
                       <h3 className="text-sm font-bold text-white">
                         {cfg.name} · {cfg.info}
                       </h3>
-                      {tState.isRunning && (
-                        <span className="text-[11px] font-semibold text-emerald-400">
-                          시청 중
+                      {isRinging ? (
+                        <span className="inline-flex items-center gap-1 text-[11px] font-bold text-red-400">
+                          <BellRing className="w-3 h-3" />
+                          <span>종료 알림 중</span>
                         </span>
-                      )}
+                      ) : tState.isRunning ? (
+                        <span className="text-[11px] font-semibold text-emerald-400">
+                          카운트다운 중
+                        </span>
+                      ) : isFinished ? (
+                        <span className="text-[11px] font-semibold text-amber-400">
+                          시간 종료 · 차감 대기
+                        </span>
+                      ) : isPaused ? (
+                        <span className="text-[11px] font-semibold text-amber-300">
+                          일시정지
+                        </span>
+                      ) : null}
                     </div>
                     <p className="text-xs text-slate-400 tabular-nums">
                       잔여 시간{' '}
@@ -154,84 +226,239 @@ export const YoutubeTimerTab: React.FC<YoutubeTimerTabProps> = ({
                     </p>
                   </div>
 
-                  {/* Hardware Segmented Readout */}
-                  <div className="font-mono text-3xl font-bold tracking-wider bg-slate-950 px-3.5 py-2 rounded-xl text-amber-400 border border-slate-800 tabular-nums shrink-0">
-                    {formatTimer(tState.elapsedSeconds)}
+                  {/* Countdown Readout */}
+                  <div className="text-right shrink-0">
+                    <div
+                      className={`font-mono text-3xl font-bold tracking-wider bg-slate-950 px-3.5 py-2 rounded-xl border tabular-nums ${
+                        isRinging || isFinished
+                          ? 'text-red-400 border-red-800'
+                          : 'text-amber-400 border-slate-800'
+                      }`}
+                    >
+                      {formatTimer(tState.remainingSeconds)}
+                    </div>
+                    <div className="text-[11px] text-slate-400 mt-1 tabular-nums">
+                      설정 {tState.targetMinutes}분
+                    </div>
+                  </div>
+                </div>
+
+                {/* Countdown Progress Bar */}
+                <div className="w-full bg-slate-950 h-1.5 rounded-full overflow-hidden border border-slate-800">
+                  <div
+                    className={`h-full rounded-full transition-all duration-300 ${
+                      isRinging || isFinished
+                        ? 'bg-red-500'
+                        : isBlue
+                        ? 'bg-blue-500'
+                        : 'bg-rose-500'
+                    }`}
+                    style={{ width: `${progressPct}%` }}
+                  />
+                </div>
+
+                {/* Time Setting Controls */}
+                <div className="space-y-2">
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    {TIMER_PRESET_MINUTES.map((min) => {
+                      const active = tState.targetMinutes === min;
+                      const overRemaining = sum.remainingMinutes > 0 && min > sum.remainingMinutes;
+                      return (
+                        <button
+                          key={min}
+                          type="button"
+                          disabled={!canEditDuration || overRemaining}
+                          onClick={() => onSetChildTimerMinutes(childKey, min)}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold tabular-nums transition-colors ${
+                            active
+                              ? isBlue
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-rose-600 text-white'
+                              : !canEditDuration || overRemaining
+                              ? 'bg-slate-900 text-slate-600 border border-slate-800 cursor-not-allowed'
+                              : 'bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700'
+                          }`}
+                        >
+                          {min}분
+                        </button>
+                      );
+                    })}
+
+                    {sum.remainingMinutes > 0 &&
+                      sum.remainingMinutes <= 180 &&
+                      !TIMER_PRESET_MINUTES.includes(sum.remainingMinutes) && (
+                        <button
+                          type="button"
+                          disabled={!canEditDuration}
+                          onClick={() => onSetChildTimerMinutes(childKey, sum.remainingMinutes)}
+                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold tabular-nums transition-colors ${
+                            tState.targetMinutes === sum.remainingMinutes
+                              ? 'bg-emerald-600 text-white'
+                              : !canEditDuration
+                              ? 'bg-slate-900 text-slate-600 border border-slate-800 cursor-not-allowed'
+                              : 'bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-slate-700'
+                          }`}
+                        >
+                          잔여 {sum.remainingMinutes}분
+                        </button>
+                      )}
+
+                    <div className="relative ml-auto w-20">
+                      <input
+                        type="number"
+                        min={1}
+                        max={180}
+                        disabled={!canEditDuration}
+                        value={draftMinutes[childKey] ?? String(tState.targetMinutes)}
+                        onChange={(e) => handleMinuteInputChange(childKey, e.target.value)}
+                        onBlur={() => handleMinuteInputBlur(childKey)}
+                        aria-label={`${cfg.name} 시청 시간(분) 직접 입력`}
+                        className="w-full pl-2.5 pr-6 py-1 rounded-lg bg-slate-950 border border-slate-700 text-xs font-bold text-white tabular-nums focus:outline-none focus:ring-1 focus:ring-amber-400 disabled:opacity-50"
+                      />
+                      <span className="absolute right-2 top-1 text-[11px] text-slate-400 pointer-events-none">
+                        분
+                      </span>
+                    </div>
                   </div>
                 </div>
 
                 {isNoTimeLeft && (
-                  <div className="mb-4 px-3 py-2 rounded-xl bg-rose-950/60 border border-rose-800/70 text-xs text-rose-200 flex items-center gap-2">
+                  <div className="px-3 py-2 rounded-xl bg-rose-950/60 border border-rose-800/70 text-xs text-rose-200 flex items-center gap-2">
                     <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
                     <span>잔여 시간이 0분입니다. 주말 보충 수행으로 시간을 충전할 수 있습니다.</span>
                   </div>
                 )}
 
+                {exceedsRemaining && !isRinging && !isFinished && (
+                  <div className="px-3 py-2 rounded-xl bg-amber-950/50 border border-amber-800/70 text-xs text-amber-200 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span>
+                      현재 잔여 시간({sum.remainingMinutes}분)을 초과합니다. 잔여 시간 이하로 설정해주세요.
+                    </span>
+                  </div>
+                )}
+
+                {/* Action Footer */}
                 <div className="flex flex-wrap items-center justify-between gap-2 pt-3 border-t border-slate-800">
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      disabled={isNoTimeLeft}
-                      onClick={() => onToggleChildTimer(childKey)}
-                      className={`px-3.5 py-2 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
-                        isNoTimeLeft
-                          ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
-                          : tState.isRunning
-                          ? 'bg-amber-500 hover:bg-amber-400 text-slate-950'
-                          : 'bg-emerald-600 hover:bg-emerald-500 text-white'
-                      }`}
-                    >
-                      {tState.isRunning ? (
+                  {isRinging ? (
+                    <div className="w-full flex flex-wrap items-center gap-2">
+                      {targetDeductAmt > 0 ? (
                         <>
-                          <Pause className="w-3.5 h-3.5 fill-current" />
-                          <span>일시정지</span>
+                          <button
+                            type="button"
+                            onClick={() => onDeductChildTimer(childKey, 'target')}
+                            className="flex-1 px-3.5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
+                          >
+                            <CheckCircle2 className="w-4 h-4 shrink-0" />
+                            <span>알림 해제 + {targetDeductAmt}분 차감</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => onDismissChildAlarm(childKey)}
+                            className="px-3 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                          >
+                            <VolumeX className="w-3.5 h-3.5" />
+                            <span>알림만 해제</span>
+                          </button>
                         </>
                       ) : (
-                        <>
-                          <Play className="w-3.5 h-3.5 fill-current" />
-                          <span>{tState.elapsedSeconds > 0 ? '이어서 시작' : '타이머 시작'}</span>
-                        </>
+                        <button
+                          type="button"
+                          onClick={() => onDismissChildAlarm(childKey)}
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors"
+                        >
+                          <VolumeX className="w-4 h-4" />
+                          <span>알림 해제</span>
+                        </button>
                       )}
-                    </button>
-
-                    {isParentMode && tState.elapsedSeconds > 0 && (
+                    </div>
+                  ) : isFinished ? (
+                    <div className="w-full flex flex-wrap items-center justify-between gap-2">
+                      {targetDeductAmt > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => onDeductChildTimer(childKey, 'target')}
+                          className="flex-1 px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap tabular-nums"
+                        >
+                          <Square className="w-3.5 h-3.5 fill-current" />
+                          <span>설정 {targetDeductAmt}분 차감 확정</span>
+                        </button>
+                      )}
                       <button
                         type="button"
                         onClick={() => onResetChildTimer(childKey)}
-                        className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium inline-flex items-center gap-1 transition-colors whitespace-nowrap shrink-0"
+                        className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium inline-flex items-center gap-1 transition-colors whitespace-nowrap shrink-0"
                       >
                         <RotateCcw className="w-3.5 h-3.5" />
-                        <span>초기화</span>
+                        <span>다시 {tState.targetMinutes}분 준비</span>
                       </button>
-                    )}
-                  </div>
-
-                  {tState.elapsedSeconds > 0 ? (
-                    isParentMode ? (
-                      <button
-                        type="button"
-                        onClick={() => onFinishAndDeductChildTimer(childKey)}
-                        className="px-3.5 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 tabular-nums"
-                      >
-                        <Square className="w-3.5 h-3.5 fill-current" />
-                        <span>
-                          차감 확정 (-{Math.max(1, Math.round(tState.elapsedSeconds / 60))}분)
-                        </span>
-                      </button>
-                    ) : (
-                      <span className="text-[11px] text-slate-400 inline-flex items-center gap-1 tabular-nums">
-                        <Lock className="w-3 h-3 text-amber-400 shrink-0" />
-                        <span>
-                          차감은 부모님 전용 (현재 {Math.max(1, Math.round(tState.elapsedSeconds / 60))}분)
-                        </span>
-                      </span>
-                    )
+                    </div>
                   ) : (
-                    !isParentMode && (
-                      <span className="text-[11px] text-slate-500">
-                        시작 · 일시정지 가능
-                      </span>
-                    )
+                    <>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          disabled={isNoTimeLeft || (!tState.isRunning && exceedsRemaining)}
+                          onClick={() => onToggleChildTimer(childKey)}
+                          className={`px-3.5 py-2 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                            isNoTimeLeft || (!tState.isRunning && exceedsRemaining)
+                              ? 'bg-slate-800 text-slate-500 cursor-not-allowed'
+                              : tState.isRunning
+                              ? 'bg-amber-500 hover:bg-amber-400 text-slate-950'
+                              : 'bg-emerald-600 hover:bg-emerald-500 text-white'
+                          }`}
+                        >
+                          {tState.isRunning ? (
+                            <>
+                              <Pause className="w-3.5 h-3.5 fill-current" />
+                              <span>일시정지</span>
+                            </>
+                          ) : (
+                            <>
+                              <Play className="w-3.5 h-3.5 fill-current" />
+                              <span>{isPaused ? '이어서 시작' : '타이머 시작'}</span>
+                            </>
+                          )}
+                        </button>
+
+                        {isStarted && (
+                          <button
+                            type="button"
+                            onClick={() => onResetChildTimer(childKey)}
+                            className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-medium inline-flex items-center gap-1 transition-colors whitespace-nowrap shrink-0"
+                          >
+                            <RotateCcw className="w-3.5 h-3.5" />
+                            <span>초기화</span>
+                          </button>
+                        )}
+                      </div>
+
+                      {isStarted ? (
+                        isParentMode && sum.remainingMinutes > 0 ? (
+                          <button
+                            type="button"
+                            onClick={() => onDeductChildTimer(childKey, 'elapsed')}
+                            className="px-3 py-2 rounded-xl bg-red-600 hover:bg-red-500 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 tabular-nums"
+                          >
+                            <Square className="w-3 h-3 fill-current" />
+                            <span>중간 차감 (-{Math.min(elapsedMins, sum.remainingMinutes)}분)</span>
+                          </button>
+                        ) : (
+                          !isParentMode && (
+                            <span className="text-[11px] text-slate-400 inline-flex items-center gap-1 tabular-nums">
+                              <Lock className="w-3 h-3 text-amber-400 shrink-0" />
+                              <span>종료 시 알림음 · 차감은 부모 전용</span>
+                            </span>
+                          )
+                        )
+                      ) : (
+                        !isParentMode && (
+                          <span className="text-[11px] text-slate-500">
+                            시간 선택 후 시작 가능
+                          </span>
+                        )
+                      )}
+                    </>
                   )}
                 </div>
               </div>
@@ -367,7 +594,7 @@ export const YoutubeTimerTab: React.FC<YoutubeTimerTabProps> = ({
                   <span>시간 차감 기능은 부모님 로그인 후 사용할 수 있습니다</span>
                 </div>
                 <p className="text-xs text-slate-500">
-                  자녀용 화면에서는 상단 타이머의 시작·일시정지만 조작할 수 있습니다.
+                  자녀용 화면에서는 상단 타이머 시작·일시정지 및 알림 소리 해제만 가능하며, 시간 차감 확정은 부모님 인증 후 진행됩니다.
                 </p>
               </div>
               <button

@@ -60,10 +60,15 @@ export interface ChildData {
 export type ChildrenDataMap = Record<ChildKey, ChildData>;
 
 export interface ChildTimerState {
+  targetMinutes: number;
+  remainingSeconds: number;
   isRunning: boolean;
-  elapsedSeconds: number;
-  baseElapsedSeconds?: number;
+  baseRemainingSeconds?: number;
   startedAt?: number | null;
+  isAlarmRinging?: boolean;
+  // Legacy fields kept optional for smooth migration from old KV/localStorage payloads
+  elapsedSeconds?: number;
+  baseElapsedSeconds?: number;
 }
 
 export type TimersMap = Record<ChildKey, ChildTimerState>;

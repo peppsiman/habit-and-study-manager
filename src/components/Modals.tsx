@@ -1,7 +1,8 @@
 import React from 'react';
-import { CheckCircle2, KeyRound, Lock, X } from 'lucide-react';
+import { BellRing, CheckCircle2, KeyRound, Lock, Volume2, VolumeX, X } from 'lucide-react';
 import { CLOTHES_SUB_ITEMS } from '../constants';
-import { ChildConfig, ChildData, ConfirmDialogState, DayKey } from '../types';
+import { ChildConfig, ChildData, ChildKey, ConfirmDialogState, DayKey } from '../types';
+import { buildTimerEndMessage } from '../utils/alarmAudio';
 
 interface ClothesModalProps {
   modalData: { dayKey: DayKey; dayLabel: string } | null;
@@ -290,6 +291,133 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({ dialog, onClose }) =
           >
             {dialog.confirmText || '확인'}
           </button>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+interface RingingChildItem {
+  childKey: ChildKey;
+  name: string;
+  info: string;
+  targetMinutes: number;
+  remainingMinutes: number;
+}
+
+interface TimerAlarmModalProps {
+  ringingChildren: RingingChildItem[];
+  isParentMode: boolean;
+  onDismissOnly: (childKey: ChildKey) => void;
+  onDismissAndDeduct: (childKey: ChildKey) => void;
+}
+
+export const TimerAlarmModal: React.FC<TimerAlarmModalProps> = ({
+  ringingChildren,
+  isParentMode,
+  onDismissOnly,
+  onDismissAndDeduct
+}) => {
+  if (ringingChildren.length === 0) return null;
+
+  return (
+    <div
+      role="alertdialog"
+      aria-modal="true"
+      aria-label="유튜브 시청 시간 종료 알림"
+      className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4"
+    >
+      <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border-2 border-red-500 space-y-5">
+        <div className="flex items-center gap-3">
+          <div className="w-11 h-11 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center shrink-0 animate-pulse">
+            <BellRing className="w-6 h-6" />
+          </div>
+          <div>
+            <h3 className="text-lg font-extrabold text-slate-900">유튜브 시청 시간 종료!</h3>
+            <p className="text-xs text-slate-500 flex items-center gap-1">
+              <Volume2 className="w-3.5 h-3.5 text-red-500 shrink-0" />
+              <span>알림 해제를 누를 때까지 알림음이 반복 재생됩니다.</span>
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-4">
+          {ringingChildren.map((child) => {
+            const voiceMsg = buildTimerEndMessage(child.name, child.targetMinutes);
+            const deductAmt =
+              child.remainingMinutes > 0
+                ? Math.min(child.targetMinutes, child.remainingMinutes)
+                : 0;
+
+            return (
+              <div
+                key={child.childKey}
+                className="rounded-xl border border-red-200 bg-red-50/70 p-4 space-y-3"
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`w-6 h-6 rounded-lg text-xs font-bold flex items-center justify-center text-white ${
+                        child.childKey === 'suhyun' ? 'bg-blue-600' : 'bg-rose-600'
+                      }`}
+                    >
+                      {child.name.slice(0, 1)}
+                    </span>
+                    <span className="text-sm font-bold text-slate-900">
+                      {child.name} ({child.info}) · 설정 {child.targetMinutes}분 완료
+                    </span>
+                  </div>
+                  <span className="text-xs font-mono font-bold text-red-600 tabular-nums">
+                    00:00
+                  </span>
+                </div>
+
+                <div className="rounded-xl bg-white border border-red-200/80 px-3.5 py-2.5 text-sm font-bold text-red-700 text-center">
+                  “{voiceMsg}”
+                </div>
+
+                <div className="space-y-2">
+                  {deductAmt > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => onDismissAndDeduct(child.childKey)}
+                      className="w-full py-3 px-4 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-bold flex items-center justify-center gap-2 shadow-sm transition-colors"
+                    >
+                      <CheckCircle2 className="w-4 h-4 shrink-0" />
+                      <span>알림 해제 + {deductAmt}분 차감</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => onDismissOnly(child.childKey)}
+                      className="w-full py-3 px-4 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-bold flex items-center justify-center gap-2 shadow-sm transition-colors"
+                    >
+                      <VolumeX className="w-4 h-4 shrink-0" />
+                      <span>알림 해제 (잔여 시간 0분)</span>
+                    </button>
+                  )}
+
+                  {deductAmt > 0 && !isParentMode && (
+                    <div className="text-[11px] text-slate-500 flex items-center justify-center gap-1">
+                      <Lock className="w-3 h-3 text-amber-600 shrink-0" />
+                      <span>알림이 즉시 꺼진 뒤 부모님 인증으로 {deductAmt}분이 차감됩니다.</span>
+                    </div>
+                  )}
+
+                  {deductAmt > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => onDismissOnly(child.childKey)}
+                      className="w-full py-2 px-4 rounded-xl bg-white hover:bg-slate-100 text-slate-700 border border-slate-200 text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                    >
+                      <VolumeX className="w-3.5 h-3.5 shrink-0" />
+                      <span>알림만 해제 (차감 보류)</span>
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
       </div>
     </div>

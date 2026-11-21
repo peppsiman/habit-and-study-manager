@@ -6,43 +6,99 @@ import {
   TimersMap
 } from '../types';
 
+export const DEFAULT_TIMER_MINUTES = 20;
+
+function clampTimerMinutes(minutes: number): number {
+  if (!Number.isFinite(minutes)) return DEFAULT_TIMER_MINUTES;
+  return Math.min(180, Math.max(1, Math.round(minutes)));
+}
+
+export function createDefaultChildTimer(targetMinutes = DEFAULT_TIMER_MINUTES): ChildTimerState {
+  const mins = clampTimerMinutes(targetMinutes);
+  const totalSec = mins * 60;
+  return {
+    targetMinutes: mins,
+    remainingSeconds: totalSec,
+    baseRemainingSeconds: totalSec,
+    isRunning: false,
+    startedAt: null,
+    isAlarmRinging: false
+  };
+}
+
 function hydrateSingleTimer(raw: unknown): ChildTimerState {
   if (!raw || typeof raw !== 'object') {
-    return {
-      isRunning: false,
-      elapsedSeconds: 0,
-      baseElapsedSeconds: 0,
-      startedAt: null
-    };
+    return createDefaultChildTimer(DEFAULT_TIMER_MINUTES);
   }
 
   const obj = raw as Partial<ChildTimerState>;
+  if (typeof obj.targetMinutes !== 'number' || !Number.isFinite(obj.targetMinutes) || obj.targetMinutes <= 0) {
+    return createDefaultChildTimer(DEFAULT_TIMER_MINUTES);
+  }
+
+  const targetMinutes = clampTimerMinutes(obj.targetMinutes);
+  const maxSeconds = targetMinutes * 60;
+
+  if (obj.isAlarmRinging === true) {
+    return {
+      targetMinutes,
+      remainingSeconds: 0,
+      baseRemainingSeconds: 0,
+      isRunning: false,
+      startedAt: null,
+      isAlarmRinging: true
+    };
+  }
+
   const isRunning = Boolean(obj.isRunning);
-  const rawElapsed = Math.max(0, Number(obj.elapsedSeconds) || 0);
-  const rawBase =
-    typeof obj.baseElapsedSeconds === 'number' && Number.isFinite(obj.baseElapsedSeconds)
-      ? Math.max(0, obj.baseElapsedSeconds)
-      : rawElapsed;
   const startedAt =
     typeof obj.startedAt === 'number' && Number.isFinite(obj.startedAt) && obj.startedAt > 0
       ? obj.startedAt
       : null;
 
   if (isRunning && startedAt !== null) {
-    const delta = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+    const baseRemaining =
+      typeof obj.baseRemainingSeconds === 'number' && Number.isFinite(obj.baseRemainingSeconds)
+        ? Math.min(maxSeconds, Math.max(0, obj.baseRemainingSeconds))
+        : typeof obj.remainingSeconds === 'number' && Number.isFinite(obj.remainingSeconds)
+        ? Math.min(maxSeconds, Math.max(0, obj.remainingSeconds))
+        : maxSeconds;
+    const elapsedSinceStart = Math.max(0, Math.floor((Date.now() - startedAt) / 1000));
+    const rem = Math.max(0, baseRemaining - elapsedSinceStart);
+
+    if (rem === 0) {
+      return {
+        targetMinutes,
+        remainingSeconds: 0,
+        baseRemainingSeconds: 0,
+        isRunning: false,
+        startedAt: null,
+        isAlarmRinging: true
+      };
+    }
+
     return {
+      targetMinutes,
+      remainingSeconds: rem,
+      baseRemainingSeconds: baseRemaining,
       isRunning: true,
-      elapsedSeconds: rawBase + delta,
-      baseElapsedSeconds: rawBase,
-      startedAt
+      startedAt,
+      isAlarmRinging: false
     };
   }
 
+  const rawRemaining =
+    typeof obj.remainingSeconds === 'number' && Number.isFinite(obj.remainingSeconds)
+      ? Math.min(maxSeconds, Math.max(0, Math.round(obj.remainingSeconds)))
+      : maxSeconds;
+
   return {
+    targetMinutes,
+    remainingSeconds: rawRemaining,
+    baseRemainingSeconds: rawRemaining,
     isRunning: false,
-    elapsedSeconds: rawElapsed,
-    baseElapsedSeconds: rawElapsed,
-    startedAt: null
+    startedAt: null,
+    isAlarmRinging: false
   };
 }
 
@@ -57,15 +113,15 @@ export function hydrateTimers(rawTimers: unknown): TimersMap {
   };
 }
 
-export function computeTimerElapsed(timer: ChildTimerState, now = Date.now()): number {
+export function computeTimerRemaining(timer: ChildTimerState, now = Date.now()): number {
   if (!timer.isRunning) {
-    return Math.max(0, timer.elapsedSeconds || 0);
+    return Math.max(0, timer.remainingSeconds || 0);
   }
   if (typeof timer.startedAt === 'number' && timer.startedAt > 0) {
-    const base = Math.max(0, timer.baseElapsedSeconds ?? 0);
-    return base + Math.max(0, Math.floor((now - timer.startedAt) / 1000));
+    const base = Math.max(0, timer.baseRemainingSeconds ?? timer.targetMinutes * 60);
+    return Math.max(0, base - Math.max(0, Math.floor((now - timer.startedAt) / 1000)));
   }
-  return Math.max(0, (timer.elapsedSeconds || 0) + 1);
+  return Math.max(0, (timer.remainingSeconds || 0) - 1);
 }
 
 export async function fetchCloudState(): Promise<CloudStateApiResponse> {

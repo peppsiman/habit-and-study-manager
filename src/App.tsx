@@ -53,16 +53,25 @@ import {
   normalizeChildData
 } from './utils/scoreUtils';
 import {
-  computeTimerElapsed,
+  computeTimerRemaining,
+  createDefaultChildTimer,
+  DEFAULT_TIMER_MINUTES,
   fetchCloudState,
   hydrateTimers,
   saveCloudState
 } from './utils/cloudSync';
+import {
+  playAlarmTestSound,
+  releaseScreenWakeLock,
+  requestScreenWakeLock,
+  startContinuousAlarmSound,
+  unlockAlarmAudio
+} from './utils/alarmAudio';
 import { WeeklyBoardTab } from './components/WeeklyBoardTab';
 import { YoutubeTimerTab } from './components/YoutubeTimerTab';
 import { StickerBoardTab } from './components/StickerBoardTab';
 import { SettingsTab } from './components/SettingsTab';
-import { ClothesHelperModal, ConfirmModal, PinModal } from './components/Modals';
+import { ClothesHelperModal, ConfirmModal, PinModal, TimerAlarmModal } from './components/Modals';
 
 const TAB_ITEMS: { key: TabKey; label: string; shortLabel: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { key: 'board', label: '주간 채점 & 보충', shortLabel: '주간 채점', icon: Calendar },
@@ -147,6 +156,12 @@ export default function App() {
   const lastCloudSignatureRef = useRef('');
   const pendingPushRef = useRef(false);
   const storageTypeRef = useRef<CloudStorageType>('none');
+  const pendingTimerDeductRef = useRef<{ childKey: ChildKey; mode: 'target' | 'elapsed' } | null>(
+    null
+  );
+  const performTimerDeductRef = useRef<
+    ((childKey: ChildKey, mode: 'target' | 'elapsed', bypassParentCheck: boolean) => void) | null
+  >(null);
 
   const showToast = useCallback((msg: string, type: ToastState['type'] = 'info') => {
     setToastMessage({ msg, type });
@@ -157,21 +172,28 @@ export default function App() {
 
   const buildSyncTimersPayload = useCallback((timersData: TimersMap): TimersMap => {
     const normalizeEntry = (t: TimersMap[ChildKey]) => {
-      const safeElapsed = Math.max(0, t.elapsedSeconds || 0);
-      const safeBase = Math.max(0, t.baseElapsedSeconds ?? safeElapsed);
+      const targetMinutes = Math.min(180, Math.max(1, Math.round(t.targetMinutes || DEFAULT_TIMER_MINUTES)));
+      const maxSeconds = targetMinutes * 60;
+      const safeRemaining = Math.min(maxSeconds, Math.max(0, t.remainingSeconds ?? maxSeconds));
+      const safeBase = Math.min(maxSeconds, Math.max(0, t.baseRemainingSeconds ?? safeRemaining));
+
       if (t.isRunning) {
         return {
+          targetMinutes,
+          remainingSeconds: safeBase,
+          baseRemainingSeconds: safeBase,
           isRunning: true,
-          elapsedSeconds: safeBase,
-          baseElapsedSeconds: safeBase,
-          startedAt: t.startedAt ?? null
+          startedAt: t.startedAt ?? null,
+          isAlarmRinging: false
         };
       }
       return {
+        targetMinutes,
+        remainingSeconds: safeRemaining,
+        baseRemainingSeconds: safeRemaining,
         isRunning: false,
-        elapsedSeconds: safeElapsed,
-        baseElapsedSeconds: safeElapsed,
-        startedAt: null
+        startedAt: null,
+        isAlarmRinging: Boolean(t.isAlarmRinging)
       };
     };
 
@@ -454,27 +476,90 @@ export default function App() {
     };
   }, [syncFromCloud]);
 
-  // Simultaneous timestamp-based timer interval
+  // Simultaneous timestamp-based countdown interval
   useEffect(() => {
     const anyRunning = timers.suhyun.isRunning || timers.dahyun.isRunning;
     if (!anyRunning) return;
 
-    const interval = setInterval(() => {
+    const tick = () => {
       const now = Date.now();
-      setTimers((prev) => ({
-        suhyun: {
-          ...prev.suhyun,
-          elapsedSeconds: computeTimerElapsed(prev.suhyun, now)
-        },
-        dahyun: {
-          ...prev.dahyun,
-          elapsedSeconds: computeTimerElapsed(prev.dahyun, now)
+      setTimers((prev) => {
+        const updateChild = (cur: TimersMap[ChildKey]): TimersMap[ChildKey] => {
+          if (!cur.isRunning) return cur;
+          const nextRem = computeTimerRemaining(cur, now);
+          if (nextRem <= 0) {
+            return {
+              ...cur,
+              isRunning: false,
+              remainingSeconds: 0,
+              baseRemainingSeconds: 0,
+              startedAt: null,
+              isAlarmRinging: true
+            };
+          }
+          if (nextRem === cur.remainingSeconds) {
+            return cur;
+          }
+          return {
+            ...cur,
+            remainingSeconds: nextRem
+          };
+        };
+
+        const nextSuhyun = updateChild(prev.suhyun);
+        const nextDahyun = updateChild(prev.dahyun);
+        if (nextSuhyun === prev.suhyun && nextDahyun === prev.dahyun) {
+          return prev;
         }
-      }));
-    }, 1000);
+        return {
+          suhyun: nextSuhyun,
+          dahyun: nextDahyun
+        };
+      });
+    };
+
+    tick();
+    const interval = setInterval(tick, 500);
 
     return () => clearInterval(interval);
   }, [timers.suhyun.isRunning, timers.dahyun.isRunning]);
+
+  // Continuous melodic bell alarm loop until dismissed
+  useEffect(() => {
+    const anyRinging = Boolean(timers.suhyun.isAlarmRinging || timers.dahyun.isAlarmRinging);
+    if (!anyRinging) return;
+
+    const stopAlarm = startContinuousAlarmSound(() => {
+      const snap = latestSyncSnapshotRef.current.timers;
+      return Boolean(snap.suhyun.isAlarmRinging || snap.dahyun.isAlarmRinging);
+    });
+
+    return stopAlarm;
+  }, [timers.suhyun.isAlarmRinging, timers.dahyun.isAlarmRinging]);
+
+  // Keep screen awake during countdown or ringing alarm on supported devices
+  useEffect(() => {
+    const needsWakeLock =
+      timers.suhyun.isRunning ||
+      timers.dahyun.isRunning ||
+      Boolean(timers.suhyun.isAlarmRinging) ||
+      Boolean(timers.dahyun.isAlarmRinging);
+
+    if (needsWakeLock) {
+      void requestScreenWakeLock();
+    } else {
+      void releaseScreenWakeLock();
+    }
+
+    return () => {
+      void releaseScreenWakeLock();
+    };
+  }, [
+    timers.suhyun.isRunning,
+    timers.dahyun.isRunning,
+    timers.suhyun.isAlarmRinging,
+    timers.dahyun.isAlarmRinging
+  ]);
 
   const summaries = useMemo(() => {
     return {
@@ -511,6 +596,12 @@ export default function App() {
       setPinInput('');
       setPinError('');
       showToast('부모님 관리 모드로 로그인되었습니다.', 'success');
+
+      if (pendingTimerDeductRef.current) {
+        const pending = pendingTimerDeductRef.current;
+        pendingTimerDeductRef.current = null;
+        performTimerDeductRef.current?.(pending.childKey, pending.mode, true);
+      }
     } else {
       setPinError('비밀번호가 일치하지 않습니다. 다시 확인해주세요.');
     }
@@ -761,9 +852,10 @@ export default function App() {
   const deductYoutubeForChild = (
     targetChildKey: ChildKey,
     minutesToDeduct: string | number,
-    customMemo = ''
+    customMemo = '',
+    bypassParentCheck = false
   ): boolean => {
-    if (!requireParentMode('유튜브 시청 시간 차감')) return false;
+    if (!bypassParentCheck && !requireParentMode('유튜브 시청 시간 차감')) return false;
 
     const mins = parseInt(String(minutesToDeduct), 10);
     if (isNaN(mins) || mins <= 0) {
@@ -811,130 +903,218 @@ export default function App() {
     return true;
   };
 
-  // Timer Controls (Start/Pause allowed in Child Mode; Confirm/Reset Parent Only)
+  // Countdown Timer Controls (Setup / Start / Pause / Dismiss allowed in Child Mode; Deduct / Reset Parent Only)
+  const handleSetChildTimerMinutes = (childKey: ChildKey, minutes: number) => {
+    if (timers[childKey].isRunning || timers[childKey].isAlarmRinging) return;
+    const clamped = Math.min(180, Math.max(1, Math.round(minutes)));
+    setTimers((prev) => ({
+      ...prev,
+      [childKey]: createDefaultChildTimer(clamped)
+    }));
+  };
+
   const handleToggleChildTimer = (childKey: ChildKey) => {
     const childSummary = summaries[childKey];
-    const isCurrentlyRunning = timers[childKey].isRunning;
+    const currentTimer = timers[childKey];
+    const isCurrentlyRunning = currentTimer.isRunning;
 
-    if (!isCurrentlyRunning && childSummary.remainingMinutes <= 0) {
-      showToast(
-        `${CHILDREN_CONFIG[childKey].name}이는 잔여 시간이 0분이어서 타이머를 시작할 수 없습니다.`,
-        'warning'
-      );
-      return;
+    if (!isCurrentlyRunning) {
+      if (childSummary.remainingMinutes <= 0) {
+        showToast(
+          `${CHILDREN_CONFIG[childKey].name}이는 잔여 시간이 0분이어서 타이머를 시작할 수 없습니다.`,
+          'warning'
+        );
+        return;
+      }
+      if (currentTimer.targetMinutes > childSummary.remainingMinutes) {
+        showToast(
+          `설정 시간(${currentTimer.targetMinutes}분)이 잔여 시간(${childSummary.remainingMinutes}분)보다 큽니다.`,
+          'warning'
+        );
+        return;
+      }
+      unlockAlarmAudio();
     }
 
     const now = Date.now();
     setTimers((prev) => {
       const target = prev[childKey];
-      const currentElapsed = computeTimerElapsed(target, now);
+      const currentRem = computeTimerRemaining(target, now);
       if (target.isRunning) {
         return {
           ...prev,
           [childKey]: {
+            ...target,
             isRunning: false,
-            elapsedSeconds: currentElapsed,
-            baseElapsedSeconds: currentElapsed,
-            startedAt: null
+            remainingSeconds: currentRem,
+            baseRemainingSeconds: currentRem,
+            startedAt: null,
+            isAlarmRinging: false
           }
         };
       }
+      const nextBase = currentRem > 0 ? currentRem : target.targetMinutes * 60;
       return {
         ...prev,
         [childKey]: {
+          ...target,
           isRunning: true,
-          elapsedSeconds: currentElapsed,
-          baseElapsedSeconds: currentElapsed,
-          startedAt: now
+          remainingSeconds: nextBase,
+          baseRemainingSeconds: nextBase,
+          startedAt: now,
+          isAlarmRinging: false
         }
       };
     });
 
     showToast(
       !isCurrentlyRunning
-        ? `${CHILDREN_CONFIG[childKey].name} 유튜브 타이머 시작`
+        ? `${CHILDREN_CONFIG[childKey].name} 유튜브 ${currentTimer.targetMinutes}분 타이머 시작`
         : `${CHILDREN_CONFIG[childKey].name} 유튜브 타이머 일시정지`,
       'info'
     );
   };
 
   const handleResetChildTimer = (childKey: ChildKey) => {
-    if (!requireParentMode('타이머 0초 초기화')) return;
+    if (!requireParentMode('타이머 초기화')) return;
+    const targetMins = timers[childKey].targetMinutes || DEFAULT_TIMER_MINUTES;
     setTimers((prev) => ({
       ...prev,
-      [childKey]: {
-        isRunning: false,
-        elapsedSeconds: 0,
-        baseElapsedSeconds: 0,
-        startedAt: null
-      }
+      [childKey]: createDefaultChildTimer(targetMins)
     }));
-    showToast(`${CHILDREN_CONFIG[childKey].name} 타이머가 00:00으로 초기화되었습니다.`, 'info');
-  };
-
-  const handleFinishAndDeductChildTimer = (childKey: ChildKey) => {
-    if (!requireParentMode('타이머 경과 시간 차감 확정')) return;
-
-    const elapsedSec = computeTimerElapsed(timers[childKey]);
-    if (elapsedSec <= 0) return;
-
-    const elapsedMinutes = Math.max(1, Math.round(elapsedSec / 60));
-
-    setTimers((prev) => ({
-      ...prev,
-      [childKey]: {
-        isRunning: false,
-        elapsedSeconds: 0,
-        baseElapsedSeconds: 0,
-        startedAt: null
-      }
-    }));
-
-    deductYoutubeForChild(
-      childKey,
-      elapsedMinutes,
-      `실시간 타이머 측정 시청 (${formatTimer(elapsedSec)} → ${elapsedMinutes}분 차감)`
+    showToast(
+      `${CHILDREN_CONFIG[childKey].name} 타이머가 ${targetMins}분으로 초기화되었습니다.`,
+      'info'
     );
   };
 
-  const handleStartBothTimers = () => {
-    if (summaries.suhyun.remainingMinutes <= 0 && summaries.dahyun.remainingMinutes <= 0) {
-      showToast('수현이와 다현이 모두 잔여 유튜브 시간이 0분입니다.', 'warning');
+  const handleDismissChildAlarm = (childKey: ChildKey) => {
+    const targetMins = timers[childKey].targetMinutes || DEFAULT_TIMER_MINUTES;
+    setTimers((prev) => ({
+      ...prev,
+      [childKey]: {
+        ...prev[childKey],
+        isRunning: false,
+        remainingSeconds: 0,
+        baseRemainingSeconds: 0,
+        startedAt: null,
+        isAlarmRinging: false
+      }
+    }));
+    showToast(
+      `${CHILDREN_CONFIG[childKey].name} 종료 알림이 해제되었습니다. '설정 ${targetMins}분 차감 확정'을 눌러 차감하세요.`,
+      'info'
+    );
+  };
+
+  const performTimerDeduction = (
+    childKey: ChildKey,
+    mode: 'target' | 'elapsed',
+    bypassParentCheck = false
+  ) => {
+    const t = timers[childKey];
+    const targetMins = t.targetMinutes || DEFAULT_TIMER_MINUTES;
+    const currentRem = computeTimerRemaining(t);
+    const totalSec = targetMins * 60;
+    const isElapsedMode = mode === 'elapsed' && currentRem > 0;
+    const minutesToDeduct = isElapsedMode
+      ? Math.max(1, Math.round((totalSec - currentRem) / 60))
+      : targetMins;
+
+    setTimers((prev) => ({
+      ...prev,
+      [childKey]: createDefaultChildTimer(targetMins)
+    }));
+
+    const memo = isElapsedMode
+      ? `유튜브 타이머 중간 차감 (${minutesToDeduct}분 시청)`
+      : `유튜브 타이머 ${targetMins}분 완료 차감`;
+
+    deductYoutubeForChild(childKey, minutesToDeduct, memo, bypassParentCheck);
+  };
+  performTimerDeductRef.current = performTimerDeduction;
+
+  const handleDeductChildTimer = (childKey: ChildKey, mode: 'target' | 'elapsed' = 'target') => {
+    if (timers[childKey].isAlarmRinging) {
+      setTimers((prev) => ({
+        ...prev,
+        [childKey]: {
+          ...prev[childKey],
+          isRunning: false,
+          remainingSeconds: 0,
+          baseRemainingSeconds: 0,
+          startedAt: null,
+          isAlarmRinging: false
+        }
+      }));
+    }
+
+    if (!isParentMode) {
+      pendingTimerDeductRef.current = { childKey, mode };
+      requireParentMode('타이머 시청 시간 차감 확정');
       return;
     }
+
+    performTimerDeduction(childKey, mode, false);
+  };
+
+  const handleStartBothTimers = () => {
+    const canStartSuhyun =
+      !timers.suhyun.isRunning &&
+      summaries.suhyun.remainingMinutes > 0 &&
+      timers.suhyun.targetMinutes <= summaries.suhyun.remainingMinutes;
+    const canStartDahyun =
+      !timers.dahyun.isRunning &&
+      summaries.dahyun.remainingMinutes > 0 &&
+      timers.dahyun.targetMinutes <= summaries.dahyun.remainingMinutes;
+
+    if (!canStartSuhyun && !canStartDahyun) {
+      if (timers.suhyun.isRunning || timers.dahyun.isRunning) {
+        showToast('이미 시작 가능한 타이머가 작동 중입니다.', 'info');
+      } else {
+        showToast('잔여 시간을 확인하고 설정 시간을 잔여 시간 이하로 맞춰주세요.', 'warning');
+      }
+      return;
+    }
+
+    unlockAlarmAudio();
     const now = Date.now();
     setTimers((prev) => {
-      const nextFor = (ck: ChildKey) => {
+      const nextFor = (ck: ChildKey, shouldStart: boolean) => {
         const cur = prev[ck];
-        if (cur.isRunning || summaries[ck].remainingMinutes <= 0) {
-          return cur;
-        }
-        const currentElapsed = computeTimerElapsed(cur, now);
+        if (!shouldStart) return cur;
+        const currentRem = computeTimerRemaining(cur, now);
+        const nextBase = currentRem > 0 ? currentRem : cur.targetMinutes * 60;
         return {
+          ...cur,
           isRunning: true,
-          elapsedSeconds: currentElapsed,
-          baseElapsedSeconds: currentElapsed,
-          startedAt: now
+          remainingSeconds: nextBase,
+          baseRemainingSeconds: nextBase,
+          startedAt: now,
+          isAlarmRinging: false
         };
       };
       return {
-        suhyun: nextFor('suhyun'),
-        dahyun: nextFor('dahyun')
+        suhyun: nextFor('suhyun', canStartSuhyun),
+        dahyun: nextFor('dahyun', canStartDahyun)
       };
     });
-    showToast('수현이와 다현이 타이머가 동시에 시작되었습니다.', 'success');
+    showToast('유튜브 카운트다운 타이머가 시작되었습니다.', 'success');
   };
 
   const handlePauseBothTimers = () => {
     const now = Date.now();
     setTimers((prev) => {
       const pauseFor = (cur: TimersMap[ChildKey]) => {
-        const currentElapsed = computeTimerElapsed(cur, now);
+        if (!cur.isRunning) return cur;
+        const currentRem = computeTimerRemaining(cur, now);
         return {
+          ...cur,
           isRunning: false,
-          elapsedSeconds: currentElapsed,
-          baseElapsedSeconds: currentElapsed,
-          startedAt: null
+          remainingSeconds: currentRem,
+          baseRemainingSeconds: currentRem,
+          startedAt: null,
+          isAlarmRinging: false
         };
       };
       return {
@@ -942,7 +1122,12 @@ export default function App() {
         dahyun: pauseFor(prev.dahyun)
       };
     });
-    showToast('모든 타이머를 일시정지했습니다.', 'info');
+    showToast('작동 중인 모든 타이머를 일시정지했습니다.', 'info');
+  };
+
+  const handleTestAlarmSound = () => {
+    playAlarmTestSound();
+    showToast('종료 알림음 테스트를 재생했습니다.', 'info');
   };
 
   const handleUndoWatchLog = (logId: string) => {
@@ -1169,8 +1354,8 @@ export default function App() {
         }));
 
         setTimers({
-          suhyun: { isRunning: false, elapsedSeconds: 0, baseElapsedSeconds: 0, startedAt: null },
-          dahyun: { isRunning: false, elapsedSeconds: 0, baseElapsedSeconds: 0, startedAt: null }
+          suhyun: createDefaultChildTimer(DEFAULT_TIMER_MINUTES),
+          dahyun: createDefaultChildTimer(DEFAULT_TIMER_MINUTES)
         });
 
         setConfirmDialog(null);
@@ -1360,7 +1545,7 @@ export default function App() {
               <div className="flex items-center justify-between">
                 <span className="text-[11px] font-semibold text-slate-300 inline-flex items-center gap-1.5">
                   <Clock className="w-3.5 h-3.5 text-amber-400" />
-                  <span>유튜브 실시간 타이머</span>
+                  <span>유튜브 알림 타이머</span>
                 </span>
                 <button
                   type="button"
@@ -1376,54 +1561,78 @@ export default function App() {
                   const cfg = CHILDREN_CONFIG[ck];
                   const sum = summaries[ck];
                   const t = timers[ck];
-                  const isNoTime = !t.isRunning && sum.remainingMinutes <= 0;
+                  const isRinging = Boolean(t.isAlarmRinging);
+                  const isFinished = t.remainingSeconds === 0;
+                  const exceedsRemaining =
+                    sum.remainingMinutes > 0 && t.targetMinutes > sum.remainingMinutes;
+                  const isDisabled =
+                    !t.isRunning && (sum.remainingMinutes <= 0 || exceedsRemaining);
                   return (
                     <div
                       key={ck}
-                      className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 space-y-2"
+                      className={`p-2.5 rounded-lg border space-y-2 ${
+                        isRinging
+                          ? 'bg-red-950/60 border-red-500 animate-pulse'
+                          : 'bg-slate-900 border-slate-800'
+                      }`}
                     >
                       <div className="flex items-center justify-between text-xs">
                         <span className="font-semibold text-slate-200">{cfg.name}</span>
-                        <span className="font-mono font-bold text-amber-400 tabular-nums">
-                          {formatTimer(t.elapsedSeconds)}
+                        <span
+                          className={`font-mono font-bold tabular-nums ${
+                            isRinging || isFinished ? 'text-red-400' : 'text-amber-400'
+                          }`}
+                        >
+                          {formatTimer(t.remainingSeconds)}
                         </span>
                       </div>
                       <div className="flex items-center justify-between gap-1.5">
                         <span className="text-[11px] text-slate-400 tabular-nums">
-                          잔여 {sum.remainingMinutes}분
+                          설정 {t.targetMinutes}분 · 잔여 {sum.remainingMinutes}분
                         </span>
                         <div className="flex items-center gap-1">
-                          <button
-                            type="button"
-                            disabled={isNoTime}
-                            onClick={() => handleToggleChildTimer(ck)}
-                            className={`px-2 py-1 rounded-md text-[11px] font-semibold inline-flex items-center gap-1 transition-colors ${
-                              isNoTime
-                                ? 'bg-slate-800 text-slate-600 cursor-not-allowed'
-                                : t.isRunning
-                                ? 'bg-amber-500 text-slate-950 hover:bg-amber-400'
-                                : 'bg-emerald-600 text-white hover:bg-emerald-500'
-                            }`}
-                          >
-                            {t.isRunning ? (
-                              <>
-                                <Pause className="w-3 h-3 fill-current" />
-                                <span>정지</span>
-                              </>
-                            ) : (
-                              <>
-                                <Play className="w-3 h-3 fill-current" />
-                                <span>시작</span>
-                              </>
-                            )}
-                          </button>
-                          {isParentMode && t.elapsedSeconds > 0 && (
+                          {isRinging ? (
                             <button
                               type="button"
-                              onClick={() => handleFinishAndDeductChildTimer(ck)}
-                              className="px-2 py-1 rounded-md bg-red-600 hover:bg-red-500 text-white text-[11px] font-semibold tabular-nums transition-colors"
+                              onClick={() => handleDismissChildAlarm(ck)}
+                              className="px-2 py-1 rounded-md bg-red-600 hover:bg-red-500 text-white text-[11px] font-semibold transition-colors"
                             >
-                              -{Math.max(1, Math.round(t.elapsedSeconds / 60))}분
+                              알림 해제
+                            </button>
+                          ) : isFinished ? (
+                            sum.remainingMinutes > 0 && (
+                              <button
+                                type="button"
+                                onClick={() => handleDeductChildTimer(ck, 'target')}
+                                className="px-2 py-1 rounded-md bg-red-600 hover:bg-red-500 text-white text-[11px] font-semibold tabular-nums transition-colors"
+                              >
+                                -{Math.min(t.targetMinutes, sum.remainingMinutes)}분 차감
+                              </button>
+                            )
+                          ) : (
+                            <button
+                              type="button"
+                              disabled={isDisabled}
+                              onClick={() => handleToggleChildTimer(ck)}
+                              className={`px-2 py-1 rounded-md text-[11px] font-semibold inline-flex items-center gap-1 transition-colors ${
+                                isDisabled
+                                  ? 'bg-slate-800 text-slate-600 cursor-not-allowed'
+                                  : t.isRunning
+                                  ? 'bg-amber-500 text-slate-950 hover:bg-amber-400'
+                                  : 'bg-emerald-600 text-white hover:bg-emerald-500'
+                              }`}
+                            >
+                              {t.isRunning ? (
+                                <>
+                                  <Pause className="w-3 h-3 fill-current" />
+                                  <span>정지</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Play className="w-3 h-3 fill-current" />
+                                  <span>시작</span>
+                                </>
+                              )}
                             </button>
                           )}
                         </div>
@@ -1634,14 +1843,14 @@ export default function App() {
                 <div className="flex items-center justify-between sm:justify-start gap-2 text-xs font-semibold text-slate-300">
                   <span className="inline-flex items-center gap-1.5">
                     <Clock className="w-3.5 h-3.5 text-amber-400" />
-                    <span>실시간 유튜브 타이머</span>
+                    <span>유튜브 알림 타이머</span>
                   </span>
                   <button
                     type="button"
                     onClick={() => setActiveTab('youtube')}
                     className="text-[11px] text-slate-400 hover:text-white underline"
                   >
-                    전체 제어
+                    시간 설정·제어
                   </button>
                 </div>
                 <div className="grid grid-cols-2 gap-2">
@@ -1649,32 +1858,70 @@ export default function App() {
                     const cfg = CHILDREN_CONFIG[ck];
                     const sum = summaries[ck];
                     const t = timers[ck];
-                    const isNoTime = !t.isRunning && sum.remainingMinutes <= 0;
+                    const isRinging = Boolean(t.isAlarmRinging);
+                    const isFinished = t.remainingSeconds === 0;
+                    const exceedsRemaining =
+                      sum.remainingMinutes > 0 && t.targetMinutes > sum.remainingMinutes;
+                    const isDisabled =
+                      !t.isRunning && (sum.remainingMinutes <= 0 || exceedsRemaining);
                     return (
                       <div
                         key={ck}
-                        className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg bg-slate-900 border border-slate-800 text-xs"
+                        className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border text-xs ${
+                          isRinging
+                            ? 'bg-red-950/60 border-red-500 animate-pulse'
+                            : 'bg-slate-900 border-slate-800'
+                        }`}
                       >
                         <div className="min-w-0">
-                          <div className="font-semibold text-slate-200 truncate">{cfg.name}</div>
-                          <div className="font-mono font-bold text-amber-400 tabular-nums">
-                            {formatTimer(t.elapsedSeconds)}
+                          <div className="font-semibold text-slate-200 truncate">
+                            {cfg.name}{' '}
+                            <span className="text-[10px] font-normal text-slate-400">
+                              ({t.targetMinutes}분)
+                            </span>
+                          </div>
+                          <div
+                            className={`font-mono font-bold tabular-nums ${
+                              isRinging || isFinished ? 'text-red-400' : 'text-amber-400'
+                            }`}
+                          >
+                            {formatTimer(t.remainingSeconds)}
                           </div>
                         </div>
-                        <button
-                          type="button"
-                          disabled={isNoTime}
-                          onClick={() => handleToggleChildTimer(ck)}
-                          className={`px-2 py-1 rounded-md text-[11px] font-semibold shrink-0 ${
-                            isNoTime
-                              ? 'bg-slate-800 text-slate-600'
-                              : t.isRunning
-                              ? 'bg-amber-500 text-slate-950'
-                              : 'bg-emerald-600 text-white'
-                          }`}
-                        >
-                          {t.isRunning ? '정지' : '시작'}
-                        </button>
+                        {isRinging ? (
+                          <button
+                            type="button"
+                            onClick={() => handleDismissChildAlarm(ck)}
+                            className="px-2 py-1 rounded-md bg-red-600 text-white text-[11px] font-semibold shrink-0"
+                          >
+                            해제
+                          </button>
+                        ) : isFinished ? (
+                          sum.remainingMinutes > 0 && (
+                            <button
+                              type="button"
+                              onClick={() => handleDeductChildTimer(ck, 'target')}
+                              className="px-2 py-1 rounded-md bg-red-600 text-white text-[11px] font-semibold shrink-0"
+                            >
+                              차감
+                            </button>
+                          )
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={isDisabled}
+                            onClick={() => handleToggleChildTimer(ck)}
+                            className={`px-2 py-1 rounded-md text-[11px] font-semibold shrink-0 ${
+                              isDisabled
+                                ? 'bg-slate-800 text-slate-600'
+                                : t.isRunning
+                                ? 'bg-amber-500 text-slate-950'
+                                : 'bg-emerald-600 text-white'
+                            }`}
+                          >
+                            {t.isRunning ? '정지' : '시작'}
+                          </button>
+                        )}
                       </div>
                     );
                   })}
@@ -1857,11 +2104,14 @@ export default function App() {
                   summaries={summaries}
                   timers={timers}
                   isParentMode={isParentMode}
+                  onSetChildTimerMinutes={handleSetChildTimerMinutes}
                   onToggleChildTimer={handleToggleChildTimer}
                   onResetChildTimer={handleResetChildTimer}
-                  onFinishAndDeductChildTimer={handleFinishAndDeductChildTimer}
+                  onDismissChildAlarm={handleDismissChildAlarm}
+                  onDeductChildTimer={handleDeductChildTimer}
                   onStartBothTimers={handleStartBothTimers}
                   onPauseBothTimers={handlePauseBothTimers}
+                  onTestAlarmSound={handleTestAlarmSound}
                   onDeductYoutube={(mins, memo) =>
                     deductYoutubeForChild(activeChild, mins, memo)
                   }
@@ -1937,9 +2187,25 @@ export default function App() {
         onClose={() => {
           setPinModalOpen(false);
           setPinError('');
+          pendingTimerDeductRef.current = null;
         }}
         onLoginSubmit={handleParentLogin}
         onSaveNewPinSubmit={handleSaveNewPin}
+      />
+
+      <TimerAlarmModal
+        ringingChildren={(['suhyun', 'dahyun'] as ChildKey[])
+          .filter((ck) => timers[ck].isAlarmRinging)
+          .map((ck) => ({
+            childKey: ck,
+            name: CHILDREN_CONFIG[ck].name,
+            info: CHILDREN_CONFIG[ck].info,
+            targetMinutes: timers[ck].targetMinutes,
+            remainingMinutes: summaries[ck].remainingMinutes
+          }))}
+        isParentMode={isParentMode}
+        onDismissOnly={handleDismissChildAlarm}
+        onDismissAndDeduct={(ck) => handleDeductChildTimer(ck, 'target')}
       />
 
       <ConfirmModal dialog={confirmDialog} onClose={() => setConfirmDialog(null)} />
