@@ -733,6 +733,9 @@ export default function App() {
       return;
     }
 
+    // Unlock Web Audio synchronously inside user gesture so handed-over running timers ring reliably
+    unlockAlarmAudio();
+
     if (storageTypeRef.current === 'none') {
       if (enteredPin !== savedParentPin) {
         setPinError('비밀번호가 일치하지 않습니다. 다시 확인해주세요.');
