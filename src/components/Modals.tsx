@@ -133,6 +133,8 @@ interface PinModalProps {
   setShowPinText: (val: boolean) => void;
   pinError: string;
   setPinError: (val: string) => void;
+  activeOtherDevice?: { deviceLabel?: string; loggedInAt: number } | null;
+  isLoggingIn?: boolean;
   onClose: () => void;
   onLoginSubmit: (e: React.FormEvent) => void;
   onSaveNewPinSubmit: (e: React.FormEvent) => void;
@@ -153,6 +155,8 @@ export const PinModal: React.FC<PinModalProps> = ({
   setShowPinText,
   pinError,
   setPinError,
+  activeOtherDevice = null,
+  isLoggingIn = false,
   onClose,
   onLoginSubmit,
   onSaveNewPinSubmit
@@ -235,26 +239,35 @@ export const PinModal: React.FC<PinModalProps> = ({
         ) : (
           <form onSubmit={onLoginSubmit} className="space-y-3">
             <p className="text-xs text-slate-500">
-              점수 채점, 유튜브 시간 차감, 칭찬스티커 발급을 위해 비밀번호를 입력하세요. (초기값:{' '}
+              점수 채점, 유튜브 타이머 제어·차감, 칭찬스티커 발급을 위해 비밀번호를 입력하세요. (초기값:{' '}
               <span className="font-mono font-semibold text-slate-700">1234</span>)
             </p>
+            {activeOtherDevice && (
+              <div className="p-3 rounded-xl bg-amber-50 border border-amber-200 text-xs text-amber-900 leading-relaxed">
+                현재 다른 기기(
+                <span className="font-bold">{activeOtherDevice.deviceLabel || '다른 기기'}</span>
+                )에서 부모님 로그인 중입니다. 이 기기에서 로그인하면 기존 기기는 자동 로그아웃됩니다.
+              </div>
+            )}
             <input
               type="password"
               value={pinInput}
+              disabled={isLoggingIn}
               onChange={(e) => {
                 setPinInput(e.target.value);
                 setPinError('');
               }}
               placeholder="비밀번호 입력"
               autoFocus
-              className="w-full px-4 py-3 rounded-xl border border-slate-300 text-center text-lg font-bold tracking-widest focus:outline-none focus:ring-2 focus:ring-slate-900"
+              className="w-full px-4 py-3 rounded-xl border border-slate-300 text-center text-lg font-bold tracking-widest focus:outline-none focus:ring-2 focus:ring-slate-900 disabled:bg-slate-50"
             />
             {pinError && <p className="text-xs font-semibold text-red-600">{pinError}</p>}
             <button
               type="submit"
-              className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold transition-colors"
+              disabled={isLoggingIn}
+              className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white text-sm font-semibold transition-colors"
             >
-              부모님 모드로 로그인
+              {isLoggingIn ? '로그인 및 동기화 중...' : '부모님 모드로 로그인'}
             </button>
           </form>
         )}

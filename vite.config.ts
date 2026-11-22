@@ -78,14 +78,86 @@ function localCloudStateMiddleware(req: IncomingMessage, res: ServerResponse, ne
           });
           return;
         }
-        const payload = {
-          ...body,
-          version: typeof body.version === 'number' ? body.version : 3,
+
+        const clientSessionId =
+          typeof body.clientSessionId === 'string' && body.clientSessionId.trim()
+            ? body.clientSessionId.trim()
+            : null;
+        const claimSession = body.claimSession === true;
+        const releaseSession = body.releaseSession === true;
+
+        const {
+          clientSessionId: _omitClientSessionId,
+          claimSession: _omitClaimSession,
+          releaseSession: _omitReleaseSession,
+          ...cleanBody
+        } = body;
+
+        const extractSessionId = (stateObj: Record<string, unknown> | null): string | null => {
+          if (!stateObj || typeof stateObj !== 'object') return null;
+          const session = stateObj.activeParentSession;
+          if (!session || typeof session !== 'object') return null;
+          const sessionId = (session as Record<string, unknown>).sessionId;
+          return typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : null;
+        };
+
+        let existing: Record<string, unknown> | null = null;
+        if (fs.existsSync(LOCAL_STATE_FILE)) {
+          const existingRaw = fs.readFileSync(LOCAL_STATE_FILE, 'utf8');
+          const parsed = existingRaw.trim() ? JSON.parse(existingRaw) : null;
+          if (parsed && typeof parsed === 'object') {
+            existing = parsed as Record<string, unknown>;
+          }
+        }
+        const existingSessionId = extractSessionId(existing);
+
+        const payload: Record<string, unknown> = {
+          ...cleanBody,
+          version: typeof cleanBody.version === 'number' ? cleanBody.version : 3,
           updatedAt:
-            typeof body.updatedAt === 'number' && Number.isFinite(body.updatedAt)
-              ? body.updatedAt
+            typeof cleanBody.updatedAt === 'number' && Number.isFinite(cleanBody.updatedAt)
+              ? cleanBody.updatedAt
               : Date.now(),
         };
+
+        if (claimSession) {
+          if (!extractSessionId(payload)) {
+            sendJson(res, 400, {
+              ok: false,
+              configured: true,
+              storageType: 'local-file',
+              state: existing,
+              error: 'Invalid session claim: activeParentSession.sessionId is required.',
+            });
+            return;
+          }
+        } else if (releaseSession) {
+          if (existingSessionId && clientSessionId !== existingSessionId) {
+            sendJson(res, 409, {
+              ok: false,
+              configured: true,
+              storageType: 'local-file',
+              sessionReplaced: true,
+              state: existing,
+              error: 'Active parent session belongs to another device.',
+            });
+            return;
+          }
+          payload.activeParentSession = null;
+        } else if (existing !== null) {
+          if (!existingSessionId || !clientSessionId || clientSessionId !== existingSessionId) {
+            sendJson(res, 409, {
+              ok: false,
+              configured: true,
+              storageType: 'local-file',
+              sessionReplaced: true,
+              state: existing,
+              error: 'Active parent session required or replaced by another device.',
+            });
+            return;
+          }
+        }
+
         fs.mkdirSync(path.dirname(LOCAL_STATE_FILE), {recursive: true});
         fs.writeFileSync(LOCAL_STATE_FILE, JSON.stringify(payload, null, 2), 'utf8');
         sendJson(res, 200, {

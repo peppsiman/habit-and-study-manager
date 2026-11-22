@@ -3,8 +3,24 @@ import {
   ChildTimerState,
   CloudAppState,
   CloudStateApiResponse,
+  SaveCloudStateOptions,
   TimersMap
 } from '../types';
+
+export function createParentSessionId(): string {
+  return `ps_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export function detectDeviceLabel(): string {
+  if (typeof navigator === 'undefined') return '웹 기기';
+  const ua = navigator.userAgent || '';
+  if (/iPhone/i.test(ua)) return 'iPhone';
+  if (/iPad/i.test(ua)) return 'iPad';
+  if (/Android/i.test(ua)) return 'Android';
+  if (/Macintosh|Mac OS X/i.test(ua)) return 'Mac';
+  if (/Windows/i.test(ua)) return 'Windows PC';
+  return '웹 기기';
+}
 
 export const DEFAULT_TIMER_MINUTES = 20;
 
@@ -154,11 +170,17 @@ export async function fetchCloudState(): Promise<CloudStateApiResponse> {
   return data;
 }
 
-export async function saveCloudState(state: CloudAppState): Promise<CloudStateApiResponse> {
+export async function saveCloudState(
+  state: CloudAppState,
+  options?: SaveCloudStateOptions
+): Promise<CloudStateApiResponse> {
   const response = await fetch('/api/state', {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(state),
+    body: JSON.stringify({
+      ...state,
+      ...(options || {})
+    }),
     cache: 'no-store'
   });
 

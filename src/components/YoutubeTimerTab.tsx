@@ -107,7 +107,7 @@ export const YoutubeTimerTab: React.FC<YoutubeTimerTabProps> = ({
               </h2>
             </div>
             <p className="text-xs text-slate-400">
-              시청할 시간을 설정하고 시작하면, 종료 시 알림음이 알림 해제까지 반복 재생되며 설정 시간만큼 바로 차감할 수 있습니다.
+              최종 로그인된 부모님 기기에서만 타이머 시작·중지·시간 차감이 가능하며, 다른 기기에서 로그인하면 기존 기기는 자동 로그아웃됩니다.
             </p>
           </div>
 
@@ -154,7 +154,7 @@ export const YoutubeTimerTab: React.FC<YoutubeTimerTabProps> = ({
             const isNoTimeLeft = !tState.isRunning && !isRinging && sum.remainingMinutes <= 0;
             const exceedsRemaining =
               sum.remainingMinutes > 0 && tState.targetMinutes > sum.remainingMinutes;
-            const canEditDuration = !tState.isRunning && !isRinging;
+            const canEditDuration = isParentMode && !tState.isRunning && !isRinging;
             const progressPct = Math.min(
               100,
               Math.max(0, (tState.remainingSeconds / totalTargetSec) * 100)
@@ -447,14 +447,15 @@ export const YoutubeTimerTab: React.FC<YoutubeTimerTabProps> = ({
                           !isParentMode && (
                             <span className="text-[11px] text-slate-400 inline-flex items-center gap-1 tabular-nums">
                               <Lock className="w-3 h-3 text-amber-400 shrink-0" />
-                              <span>종료 시 알림음 · 차감은 부모 전용</span>
+                              <span>부모님 로그인 후 타이머 제어 가능</span>
                             </span>
                           )
                         )
                       ) : (
                         !isParentMode && (
-                          <span className="text-[11px] text-slate-500">
-                            시간 선택 후 시작 가능
+                          <span className="text-[11px] text-slate-400 inline-flex items-center gap-1">
+                            <Lock className="w-3 h-3 text-amber-400 shrink-0" />
+                            <span>부모님 로그인 후 시작 가능</span>
                           </span>
                         )
                       )}
@@ -594,7 +595,7 @@ export const YoutubeTimerTab: React.FC<YoutubeTimerTabProps> = ({
                   <span>시간 차감 기능은 부모님 로그인 후 사용할 수 있습니다</span>
                 </div>
                 <p className="text-xs text-slate-500">
-                  자녀용 화면에서는 상단 타이머 시작·일시정지 및 알림 소리 해제만 가능하며, 시간 차감 확정은 부모님 인증 후 진행됩니다.
+                  중복 차감을 막기 위해 최종 로그인된 부모님 기기에서만 타이머 조작 및 시간 차감이 가능합니다.
                 </p>
               </div>
               <button

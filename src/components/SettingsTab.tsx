@@ -1,7 +1,7 @@
 import React from 'react';
 import { Cloud, CloudOff, KeyRound, Lock, RefreshCw, RotateCcw, ShieldCheck } from 'lucide-react';
 import { CHILDREN_CONFIG } from '../constants';
-import { ChildKey, CloudStorageType, SyncStatus } from '../types';
+import { ChildKey, CloudStorageType, ParentSessionInfo, SyncStatus } from '../types';
 
 interface SettingsTabProps {
   isParentMode: boolean;
@@ -22,6 +22,8 @@ interface SettingsTabProps {
   storageType: CloudStorageType;
   lastSyncedAt: number | null;
   onManualSync: () => void;
+  activeParentSession: ParentSessionInfo | null;
+  isCurrentDeviceOwner: boolean;
 }
 
 export const SettingsTab: React.FC<SettingsTabProps> = ({
@@ -42,7 +44,9 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   syncStatus,
   storageType,
   lastSyncedAt,
-  onManualSync
+  onManualSync,
+  activeParentSession,
+  isCurrentDeviceOwner
 }) => {
   const storageLabel =
     storageType === 'kv'
@@ -71,6 +75,12 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         second: '2-digit'
       })
     : '기록 없음';
+
+  const parentSessionLabel = isCurrentDeviceOwner
+    ? '현재 기기에서 부모님 로그인 중'
+    : activeParentSession
+    ? `다른 기기(${activeParentSession.deviceLabel || '웹 기기'})에서 로그인 중`
+    : '로그인된 부모 기기 없음';
 
   return (
     <section className="space-y-6">
@@ -116,7 +126,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
           <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1">
             <div className="text-slate-400 font-semibold">연결 저장소</div>
             <div className="font-bold text-slate-900">{storageLabel}</div>
@@ -128,6 +138,20 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1">
             <div className="text-slate-400 font-semibold">최근 동기화 시각</div>
             <div className="font-bold text-slate-900 tabular-nums">{lastSyncedLabel}</div>
+          </div>
+          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1">
+            <div className="text-slate-400 font-semibold">활성 부모님 기기</div>
+            <div
+              className={`font-bold ${
+                isCurrentDeviceOwner
+                  ? 'text-emerald-700'
+                  : activeParentSession
+                  ? 'text-amber-700'
+                  : 'text-slate-700'
+              }`}
+            >
+              {parentSessionLabel}
+            </div>
           </div>
         </div>
 

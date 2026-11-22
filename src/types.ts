@@ -76,12 +76,25 @@ export type TimersMap = Record<ChildKey, ChildTimerState>;
 export type SyncStatus = 'loading' | 'synced' | 'syncing' | 'local_only' | 'error';
 export type CloudStorageType = 'kv' | 'd1' | 'local-file' | 'none';
 
+export interface ParentSessionInfo {
+  sessionId: string;
+  loggedInAt: number;
+  deviceLabel?: string;
+}
+
+export interface SaveCloudStateOptions {
+  clientSessionId?: string | null;
+  claimSession?: boolean;
+  releaseSession?: boolean;
+}
+
 export interface CloudAppState {
   version: number;
   updatedAt: number;
   childrenData: ChildrenDataMap;
   parentPin: string;
   timers: TimersMap;
+  activeParentSession?: ParentSessionInfo | null;
 }
 
 export interface CloudStateApiResponse {
@@ -89,6 +102,7 @@ export interface CloudStateApiResponse {
   configured: boolean;
   storageType: CloudStorageType;
   state: CloudAppState | null;
+  sessionReplaced?: boolean;
   error?: string;
 }
 

@@ -37,6 +37,7 @@ import {
   ConfirmDialogState,
   DayKey,
   EvaluationItem,
+  ParentSessionInfo,
   StampMode,
   StickerGiver,
   SyncStatus,
@@ -55,7 +56,9 @@ import {
 import {
   computeTimerRemaining,
   createDefaultChildTimer,
+  createParentSessionId,
   DEFAULT_TIMER_MINUTES,
+  detectDeviceLabel,
   fetchCloudState,
   hydrateTimers,
   saveCloudState
@@ -143,10 +146,12 @@ export default function App() {
     return hydrateTimers(null);
   });
 
-  // Cloud sync state (Cloudflare KV / D1 / local-file fallback)
+  // Cloud sync & single-device parent session state (Cloudflare KV / D1 / local-file fallback)
   const [syncStatus, setSyncStatus] = useState<SyncStatus>('loading');
   const [storageType, setStorageType] = useState<CloudStorageType>('none');
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
+  const [activeParentSession, setActiveParentSession] = useState<ParentSessionInfo | null>(null);
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
 
   const [toastMessage, setToastMessage] = useState<ToastState | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
@@ -156,6 +161,12 @@ export default function App() {
   const lastCloudSignatureRef = useRef('');
   const pendingPushRef = useRef(false);
   const storageTypeRef = useRef<CloudStorageType>('none');
+  const myParentSessionIdRef = useRef<string | null>(null);
+  const mySessionLoggedInAtRef = useRef(0);
+  const isParentModeRef = useRef(false);
+  isParentModeRef.current = isParentMode;
+  const activeParentSessionRef = useRef<ParentSessionInfo | null>(null);
+  activeParentSessionRef.current = activeParentSession;
   const pendingTimerDeductRef = useRef<{ childKey: ChildKey; mode: 'target' | 'elapsed' } | null>(
     null
   );
@@ -227,7 +238,36 @@ export default function App() {
   storageTypeRef.current = storageType;
 
   const applyRemoteState = useCallback(
-    (remote: CloudAppState) => {
+    (remote: CloudAppState, options?: { suppressAutoLogoutToast?: boolean }) => {
+      const remoteSession = remote.activeParentSession ?? null;
+
+      if (isParentModeRef.current && myParentSessionIdRef.current) {
+        const replacedByOtherDevice = Boolean(
+          remoteSession &&
+            remoteSession.sessionId !== myParentSessionIdRef.current &&
+            (remoteSession.loggedInAt >= mySessionLoggedInAtRef.current ||
+              (remote.updatedAt || 0) > lastUpdatedAtRef.current)
+        );
+        const sessionClearedRemotely = Boolean(
+          !remoteSession && (remote.updatedAt || 0) > lastUpdatedAtRef.current
+        );
+
+        if (replacedByOtherDevice || sessionClearedRemotely) {
+          myParentSessionIdRef.current = null;
+          mySessionLoggedInAtRef.current = 0;
+          isParentModeRef.current = false;
+          pendingPushRef.current = false;
+          pendingTimerDeductRef.current = null;
+          setIsParentMode(false);
+          if (!options?.suppressAutoLogoutToast) {
+            showToast(
+              '다른 기기에서 부모님 로그인이 감지되어 이 기기는 자동 로그아웃되었습니다.',
+              'warning'
+            );
+          }
+        }
+      }
+
       const normalizedChildren: ChildrenDataMap = {
         suhyun: normalizeChildData('suhyun', remote.childrenData?.suhyun),
         dahyun: normalizeChildData('dahyun', remote.childrenData?.dahyun)
@@ -240,7 +280,13 @@ export default function App() {
 
       lastCloudSignatureRef.current = buildSyncSignature(normalizedChildren, nextPin, nextTimers);
       lastUpdatedAtRef.current = remote.updatedAt || Date.now();
+      latestSyncSnapshotRef.current = {
+        childrenData: normalizedChildren,
+        savedParentPin: nextPin,
+        timers: nextTimers
+      };
 
+      setActiveParentSession(remoteSession);
       setChildrenData(normalizedChildren);
       setSavedParentPin(nextPin);
       setTimers(nextTimers);
@@ -251,11 +297,53 @@ export default function App() {
         console.error('Failed to save synced PIN to localStorage', err);
       }
     },
-    [buildSyncSignature]
+    [buildSyncSignature, showToast]
+  );
+
+  const forceLogoutDueToOtherDevice = useCallback(
+    (remoteState?: CloudAppState | null) => {
+      myParentSessionIdRef.current = null;
+      mySessionLoggedInAtRef.current = 0;
+      isParentModeRef.current = false;
+      pendingPushRef.current = false;
+      pendingTimerDeductRef.current = null;
+      setIsParentMode(false);
+
+      if (remoteState && remoteState.childrenData) {
+        applyRemoteState(remoteState, { suppressAutoLogoutToast: true });
+      }
+      showToast(
+        '다른 기기에서 부모님 로그인이 감지되어 이 기기는 자동 로그아웃되었습니다.',
+        'warning'
+      );
+    },
+    [applyRemoteState, showToast]
   );
 
   const pushStateToCloud = useCallback(
-    async (data: ChildrenDataMap, pin: string, timersData: TimersMap): Promise<boolean> => {
+    async (
+      data: ChildrenDataMap,
+      pin: string,
+      timersData: TimersMap,
+      options?: {
+        claimSession?: boolean;
+        releaseSession?: boolean;
+        allowInitialSeed?: boolean;
+        clientSessionIdOverride?: string | null;
+        sessionOverride?: ParentSessionInfo | null;
+      }
+    ): Promise<boolean> => {
+      const clientSessionId =
+        options?.clientSessionIdOverride !== undefined
+          ? options.clientSessionIdOverride
+          : myParentSessionIdRef.current;
+
+      if (!options?.claimSession && !options?.releaseSession && !options?.allowInitialSeed) {
+        if (!isParentModeRef.current || !clientSessionId) {
+          return false;
+        }
+      }
+
       const syncTimers = buildSyncTimersPayload(timersData);
       const signature = JSON.stringify({
         childrenData: data,
@@ -263,20 +351,38 @@ export default function App() {
         timers: syncTimers
       });
       const updatedAt = Math.max(Date.now(), lastUpdatedAtRef.current + 1);
+      const sessionPayload =
+        options?.sessionOverride !== undefined
+          ? options.sessionOverride
+          : options?.releaseSession
+          ? null
+          : activeParentSessionRef.current;
+
       const payload: CloudAppState = {
         version: 3,
         updatedAt,
         childrenData: data,
         parentPin: pin,
-        timers: syncTimers
+        timers: syncTimers,
+        activeParentSession: sessionPayload
       };
 
       setSyncStatus('syncing');
       try {
-        const res = await saveCloudState(payload);
+        const res = await saveCloudState(payload, {
+          clientSessionId,
+          claimSession: options?.claimSession,
+          releaseSession: options?.releaseSession
+        });
         if (!res.configured) {
           setStorageType('none');
           setSyncStatus('local_only');
+          return false;
+        }
+        if (res.sessionReplaced) {
+          forceLogoutDueToOtherDevice(res.state);
+          setSyncStatus('synced');
+          setLastSyncedAt(Date.now());
           return false;
         }
         if (!res.ok) {
@@ -286,6 +392,9 @@ export default function App() {
         setStorageType(res.storageType);
         lastCloudSignatureRef.current = signature;
         lastUpdatedAtRef.current = res.state?.updatedAt || updatedAt;
+        if (res.state?.activeParentSession !== undefined) {
+          setActiveParentSession(res.state.activeParentSession ?? null);
+        }
         setSyncStatus('synced');
         setLastSyncedAt(Date.now());
         return true;
@@ -295,7 +404,7 @@ export default function App() {
         return false;
       }
     },
-    [buildSyncTimersPayload]
+    [buildSyncTimersPayload, forceLogoutDueToOtherDevice]
   );
 
   // Initial cloud hydration on mount
@@ -324,7 +433,10 @@ export default function App() {
           // Seed empty cloud storage with current initial/local data
           const snap = latestSyncSnapshotRef.current;
           isInitialHydratedRef.current = true;
-          await pushStateToCloud(snap.childrenData, snap.savedParentPin, snap.timers);
+          await pushStateToCloud(snap.childrenData, snap.savedParentPin, snap.timers, {
+            allowInitialSeed: true,
+            sessionOverride: null
+          });
         }
       } catch (err) {
         console.error('Failed to fetch initial cloud state', err);
@@ -363,10 +475,11 @@ export default function App() {
     [buildSyncSignature, childrenData, savedParentPin, timers]
   );
 
-  // Debounced cloud push on meaningful state changes (excludes 1-sec timer ticks)
+  // Debounced cloud push ONLY from the active logged-in parent device (excludes 1-sec ticks)
   useEffect(() => {
     if (!isInitialHydratedRef.current) return;
     if (storageType === 'none') return;
+    if (!isParentMode || !myParentSessionIdRef.current) return;
     if (currentSyncSignature === lastCloudSignatureRef.current) return;
 
     pendingPushRef.current = true;
@@ -382,7 +495,7 @@ export default function App() {
       clearTimeout(timeoutId);
       pendingPushRef.current = false;
     };
-  }, [currentSyncSignature, storageType, childrenData, savedParentPin, timers, pushStateToCloud]);
+  }, [currentSyncSignature, storageType, isParentMode, childrenData, savedParentPin, timers, pushStateToCloud]);
 
   const syncFromCloud = useCallback(
     async (isManual = false) => {
@@ -415,25 +528,42 @@ export default function App() {
 
         if (res.state && res.state.childrenData) {
           const remoteUpdated = res.state.updatedAt || 0;
-          if (remoteUpdated > lastUpdatedAtRef.current) {
+          const remoteSession = res.state.activeParentSession ?? null;
+          const sessionChangedRemotely = Boolean(
+            isParentModeRef.current &&
+              myParentSessionIdRef.current &&
+              ((remoteSession &&
+                remoteSession.sessionId !== myParentSessionIdRef.current &&
+                (remoteSession.loggedInAt >= mySessionLoggedInAtRef.current ||
+                  remoteUpdated > lastUpdatedAtRef.current)) ||
+                (!remoteSession && remoteUpdated > lastUpdatedAtRef.current))
+          );
+
+          if (remoteUpdated > lastUpdatedAtRef.current || sessionChangedRemotely) {
             applyRemoteState(res.state);
             setSyncStatus('synced');
             setLastSyncedAt(Date.now());
-            if (isManual) {
+            if (isManual && !sessionChangedRemotely) {
               showToast('클라우드에서 최신 데이터를 불러왔습니다.', 'success');
             }
             return;
           }
+
+          if (remoteSession?.sessionId !== activeParentSessionRef.current?.sessionId) {
+            setActiveParentSession(remoteSession);
+          }
         }
 
-        const snap = latestSyncSnapshotRef.current;
-        const localSig = buildSyncSignature(snap.childrenData, snap.savedParentPin, snap.timers);
-        if (localSig !== lastCloudSignatureRef.current) {
-          const ok = await pushStateToCloud(snap.childrenData, snap.savedParentPin, snap.timers);
-          if (isManual && ok) {
-            showToast('변경된 내역을 클라우드에 저장했습니다.', 'success');
+        if (isParentModeRef.current && myParentSessionIdRef.current) {
+          const snap = latestSyncSnapshotRef.current;
+          const localSig = buildSyncSignature(snap.childrenData, snap.savedParentPin, snap.timers);
+          if (localSig !== lastCloudSignatureRef.current) {
+            const ok = await pushStateToCloud(snap.childrenData, snap.savedParentPin, snap.timers);
+            if (isManual && ok) {
+              showToast('변경된 내역을 클라우드에 저장했습니다.', 'success');
+            }
+            return;
           }
-          return;
         }
 
         setSyncStatus('synced');
@@ -452,7 +582,7 @@ export default function App() {
     [applyRemoteState, buildSyncSignature, pushStateToCloud, showToast]
   );
 
-  // Auto-pull when tab gains focus / visibility or every 15 seconds while visible
+  // Auto-pull when tab gains focus / visibility or every 5 seconds while visible
   useEffect(() => {
     const handleVisibilityOrFocus = () => {
       if (document.visibilityState === 'visible' && storageTypeRef.current !== 'none') {
@@ -467,7 +597,7 @@ export default function App() {
       if (document.visibilityState === 'visible' && storageTypeRef.current !== 'none') {
         void syncFromCloud(false);
       }
-    }, 15000);
+    }, 5000);
 
     return () => {
       window.removeEventListener('focus', handleVisibilityOrFocus);
@@ -494,7 +624,7 @@ export default function App() {
               remainingSeconds: 0,
               baseRemainingSeconds: 0,
               startedAt: null,
-              isAlarmRinging: true
+              isAlarmRinging: isParentModeRef.current
             };
           }
           if (nextRem === cur.remainingSeconds) {
@@ -524,18 +654,23 @@ export default function App() {
     return () => clearInterval(interval);
   }, [timers.suhyun.isRunning, timers.dahyun.isRunning]);
 
-  // Continuous melodic bell alarm loop until dismissed
+  // Continuous melodic bell alarm loop ONLY on the active logged-in parent device
   useEffect(() => {
-    const anyRinging = Boolean(timers.suhyun.isAlarmRinging || timers.dahyun.isAlarmRinging);
+    const anyRinging =
+      isParentMode &&
+      Boolean(timers.suhyun.isAlarmRinging || timers.dahyun.isAlarmRinging);
     if (!anyRinging) return;
 
     const stopAlarm = startContinuousAlarmSound(() => {
       const snap = latestSyncSnapshotRef.current.timers;
-      return Boolean(snap.suhyun.isAlarmRinging || snap.dahyun.isAlarmRinging);
+      return (
+        isParentModeRef.current &&
+        Boolean(snap.suhyun.isAlarmRinging || snap.dahyun.isAlarmRinging)
+      );
     });
 
     return stopAlarm;
-  }, [timers.suhyun.isAlarmRinging, timers.dahyun.isAlarmRinging]);
+  }, [isParentMode, timers.suhyun.isAlarmRinging, timers.dahyun.isAlarmRinging]);
 
   // Keep screen awake during countdown or ringing alarm on supported devices
   useEffect(() => {
@@ -588,9 +723,30 @@ export default function App() {
     return true;
   };
 
-  const handleParentLogin = (e: React.FormEvent) => {
+  const handleParentLogin = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (pinInput === savedParentPin) {
+    if (isLoggingIn) return;
+
+    const enteredPin = pinInput;
+    if (!enteredPin) {
+      setPinError('비밀번호를 입력해주세요.');
+      return;
+    }
+
+    if (storageTypeRef.current === 'none') {
+      if (enteredPin !== savedParentPin) {
+        setPinError('비밀번호가 일치하지 않습니다. 다시 확인해주세요.');
+        return;
+      }
+      const localSession: ParentSessionInfo = {
+        sessionId: createParentSessionId(),
+        loggedInAt: Date.now(),
+        deviceLabel: detectDeviceLabel()
+      };
+      myParentSessionIdRef.current = localSession.sessionId;
+      mySessionLoggedInAtRef.current = localSession.loggedInAt;
+      isParentModeRef.current = true;
+      setActiveParentSession(localSession);
       setIsParentMode(true);
       setPinModalOpen(false);
       setPinInput('');
@@ -602,8 +758,166 @@ export default function App() {
         pendingTimerDeductRef.current = null;
         performTimerDeductRef.current?.(pending.childKey, pending.mode, true);
       }
-    } else {
-      setPinError('비밀번호가 일치하지 않습니다. 다시 확인해주세요.');
+      return;
+    }
+
+    setIsLoggingIn(true);
+    try {
+      const res = await fetchCloudState();
+      if (!res.ok) {
+        setPinError('클라우드 서버와 통신할 수 없습니다. 잠시 후 다시 시도해주세요.');
+        return;
+      }
+
+      if (!res.configured) {
+        setStorageType('none');
+        setSyncStatus('local_only');
+        if (enteredPin !== savedParentPin) {
+          setPinError('비밀번호가 일치하지 않습니다. 다시 확인해주세요.');
+          return;
+        }
+        const localSession: ParentSessionInfo = {
+          sessionId: createParentSessionId(),
+          loggedInAt: Date.now(),
+          deviceLabel: detectDeviceLabel()
+        };
+        myParentSessionIdRef.current = localSession.sessionId;
+        mySessionLoggedInAtRef.current = localSession.loggedInAt;
+        isParentModeRef.current = true;
+        setActiveParentSession(localSession);
+        setIsParentMode(true);
+        setPinModalOpen(false);
+        setPinInput('');
+        setPinError('');
+        showToast('부모님 관리 모드로 로그인되었습니다.', 'success');
+        if (pendingTimerDeductRef.current) {
+          const pending = pendingTimerDeductRef.current;
+          pendingTimerDeductRef.current = null;
+          performTimerDeductRef.current?.(pending.childKey, pending.mode, true);
+        }
+        return;
+      }
+
+      const remoteState = res.state && res.state.childrenData ? res.state : null;
+      const effectivePin =
+        remoteState?.parentPin && typeof remoteState.parentPin === 'string' && remoteState.parentPin.trim().length >= 4
+          ? remoteState.parentPin.trim()
+          : savedParentPin;
+
+      if (remoteState && (remoteState.updatedAt || 0) > lastUpdatedAtRef.current) {
+        applyRemoteState(remoteState, { suppressAutoLogoutToast: true });
+      }
+
+      if (enteredPin !== effectivePin) {
+        setPinError('비밀번호가 일치하지 않습니다. 다시 확인해주세요.');
+        return;
+      }
+
+      const freshChildren: ChildrenDataMap = remoteState
+        ? {
+            suhyun: normalizeChildData('suhyun', remoteState.childrenData?.suhyun),
+            dahyun: normalizeChildData('dahyun', remoteState.childrenData?.dahyun)
+          }
+        : latestSyncSnapshotRef.current.childrenData;
+      const freshTimers: TimersMap = remoteState
+        ? hydrateTimers(remoteState.timers)
+        : latestSyncSnapshotRef.current.timers;
+
+      const hadOtherSession = Boolean(remoteState?.activeParentSession?.sessionId);
+      const newSession: ParentSessionInfo = {
+        sessionId: createParentSessionId(),
+        loggedInAt: Date.now(),
+        deviceLabel: detectDeviceLabel()
+      };
+      const syncTimers = buildSyncTimersPayload(freshTimers);
+      const updatedAt = Math.max(Date.now(), (remoteState?.updatedAt || 0) + 1, lastUpdatedAtRef.current + 1);
+
+      const claimRes = await saveCloudState(
+        {
+          version: 3,
+          updatedAt,
+          childrenData: freshChildren,
+          parentPin: effectivePin,
+          timers: syncTimers,
+          activeParentSession: newSession
+        },
+        {
+          claimSession: true,
+          clientSessionId: newSession.sessionId
+        }
+      );
+
+      if (!claimRes.ok) {
+        setPinError('로그인 세션 등록에 실패했습니다. 잠시 후 다시 시도해주세요.');
+        return;
+      }
+
+      myParentSessionIdRef.current = newSession.sessionId;
+      mySessionLoggedInAtRef.current = newSession.loggedInAt;
+      isParentModeRef.current = true;
+      lastCloudSignatureRef.current = buildSyncSignature(freshChildren, effectivePin, freshTimers);
+      lastUpdatedAtRef.current = claimRes.state?.updatedAt || updatedAt;
+      latestSyncSnapshotRef.current = {
+        childrenData: freshChildren,
+        savedParentPin: effectivePin,
+        timers: freshTimers
+      };
+
+      setStorageType(claimRes.storageType);
+      setSyncStatus('synced');
+      setLastSyncedAt(Date.now());
+      setActiveParentSession(newSession);
+      setChildrenData(freshChildren);
+      setSavedParentPin(effectivePin);
+      setTimers(freshTimers);
+      try {
+        localStorage.setItem(STORAGE_KEY_PIN, effectivePin);
+      } catch (err) {
+        console.error(err);
+      }
+
+      setIsParentMode(true);
+      setPinModalOpen(false);
+      setPinInput('');
+      setPinError('');
+      showToast(
+        hadOtherSession
+          ? '부모님 모드로 로그인되었습니다. (기존 로그인 기기는 자동 로그아웃)'
+          : '부모님 관리 모드로 로그인되었습니다.',
+        'success'
+      );
+
+      if (pendingTimerDeductRef.current) {
+        const pending = pendingTimerDeductRef.current;
+        pendingTimerDeductRef.current = null;
+        performTimerDeductRef.current?.(pending.childKey, pending.mode, true);
+      }
+    } catch (err) {
+      console.error('Parent login failed', err);
+      setPinError('로그인 처리 중 오류가 발생했습니다.');
+    } finally {
+      setIsLoggingIn(false);
+    }
+  };
+
+  const handleParentLogout = () => {
+    const prevSessionId = myParentSessionIdRef.current;
+    myParentSessionIdRef.current = null;
+    mySessionLoggedInAtRef.current = 0;
+    isParentModeRef.current = false;
+    pendingPushRef.current = false;
+    pendingTimerDeductRef.current = null;
+    setIsParentMode(false);
+    setActiveParentSession(null);
+    showToast('자녀용 조회 모드로 잠금되었습니다.', 'info');
+
+    if (storageTypeRef.current !== 'none' && prevSessionId) {
+      const snap = latestSyncSnapshotRef.current;
+      void pushStateToCloud(snap.childrenData, snap.savedParentPin, snap.timers, {
+        releaseSession: true,
+        clientSessionIdOverride: prevSessionId,
+        sessionOverride: null
+      });
     }
   };
 
@@ -863,7 +1177,8 @@ export default function App() {
       return false;
     }
 
-    const targetSummary = summaries[targetChildKey];
+    const latestChildData = latestSyncSnapshotRef.current.childrenData[targetChildKey];
+    const targetSummary = computeChildScoreSummary(targetChildKey, latestChildData);
     const targetName = CHILDREN_CONFIG[targetChildKey].name;
 
     if (targetSummary.remainingMinutes <= 0) {
@@ -903,8 +1218,9 @@ export default function App() {
     return true;
   };
 
-  // Countdown Timer Controls (Setup / Start / Pause / Dismiss allowed in Child Mode; Deduct / Reset Parent Only)
+  // Countdown Timer Controls (Exclusive to Active Logged-in Parent Device)
   const handleSetChildTimerMinutes = (childKey: ChildKey, minutes: number) => {
+    if (!requireParentMode('유튜브 타이머 시간 설정')) return;
     if (timers[childKey].isRunning || timers[childKey].isAlarmRinging) return;
     const clamped = Math.min(180, Math.max(1, Math.round(minutes)));
     setTimers((prev) => ({
@@ -914,6 +1230,8 @@ export default function App() {
   };
 
   const handleToggleChildTimer = (childKey: ChildKey) => {
+    if (!requireParentMode('유튜브 타이머 제어')) return;
+
     const childSummary = summaries[childKey];
     const currentTimer = timers[childKey];
     const isCurrentlyRunning = currentTimer.isRunning;
@@ -989,6 +1307,7 @@ export default function App() {
   };
 
   const handleDismissChildAlarm = (childKey: ChildKey) => {
+    if (!requireParentMode('타이머 알림 해제')) return;
     const targetMins = timers[childKey].targetMinutes || DEFAULT_TIMER_MINUTES;
     setTimers((prev) => ({
       ...prev,
@@ -1012,7 +1331,7 @@ export default function App() {
     mode: 'target' | 'elapsed',
     bypassParentCheck = false
   ) => {
-    const t = timers[childKey];
+    const t = latestSyncSnapshotRef.current.timers[childKey];
     const targetMins = t.targetMinutes || DEFAULT_TIMER_MINUTES;
     const currentRem = computeTimerRemaining(t);
     const totalSec = targetMins * 60;
@@ -1021,9 +1340,17 @@ export default function App() {
       ? Math.max(1, Math.round((totalSec - currentRem) / 60))
       : targetMins;
 
+    const resetTimer = createDefaultChildTimer(targetMins);
+    latestSyncSnapshotRef.current = {
+      ...latestSyncSnapshotRef.current,
+      timers: {
+        ...latestSyncSnapshotRef.current.timers,
+        [childKey]: resetTimer
+      }
+    };
     setTimers((prev) => ({
       ...prev,
-      [childKey]: createDefaultChildTimer(targetMins)
+      [childKey]: resetTimer
     }));
 
     const memo = isElapsedMode
@@ -1059,6 +1386,8 @@ export default function App() {
   };
 
   const handleStartBothTimers = () => {
+    if (!requireParentMode('남매 타이머 동시 시작')) return;
+
     const canStartSuhyun =
       !timers.suhyun.isRunning &&
       summaries.suhyun.remainingMinutes > 0 &&
@@ -1103,6 +1432,8 @@ export default function App() {
   };
 
   const handlePauseBothTimers = () => {
+    if (!requireParentMode('타이머 일시정지')) return;
+
     const now = Date.now();
     setTimers((prev) => {
       const pauseFor = (cur: TimersMap[ChildKey]) => {
@@ -1690,10 +2021,7 @@ export default function App() {
               </button>
               <button
                 type="button"
-                onClick={() => {
-                  setIsParentMode(false);
-                  showToast('자녀용 화면으로 전환되었습니다.', 'info');
-                }}
+                onClick={handleParentLogout}
                 className="flex-1 px-2.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-semibold transition-colors whitespace-nowrap"
               >
                 로그아웃
@@ -1737,10 +2065,10 @@ export default function App() {
             {isParentMode ? (
               <span className="inline-flex items-center gap-1.5 font-semibold text-emerald-700">
                 <Unlock className="w-3.5 h-3.5" />
-                <span>부모님 관리 모드 · 채점 및 차감 가능</span>
+                <span>부모님 관리 모드 · 단독 제어 활성화</span>
               </span>
             ) : (
-              <span>자녀용 모드 · 조회 및 유튜브 타이머 작동 가능</span>
+              <span>자녀용 조회 모드 · 읽기 전용 (부모 로그인 시 제어 가능)</span>
             )}
           </div>
 
@@ -1762,10 +2090,7 @@ export default function App() {
             {isParentMode ? (
               <button
                 type="button"
-                onClick={() => {
-                  setIsParentMode(false);
-                  showToast('자녀용 화면으로 전환되었습니다.', 'info');
-                }}
+                onClick={handleParentLogout}
                 className="px-3.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
               >
                 <Unlock className="w-3.5 h-3.5" />
@@ -2152,6 +2477,14 @@ export default function App() {
                   storageType={storageType}
                   lastSyncedAt={lastSyncedAt}
                   onManualSync={() => void syncFromCloud(true)}
+                  activeParentSession={activeParentSession}
+                  isCurrentDeviceOwner={
+                    isParentMode &&
+                    Boolean(
+                      myParentSessionIdRef.current &&
+                        activeParentSession?.sessionId === myParentSessionIdRef.current
+                    )
+                  }
                 />
               )}
             </motion.div>
@@ -2184,6 +2517,13 @@ export default function App() {
         setShowPinText={setShowPinText}
         pinError={pinError}
         setPinError={setPinError}
+        activeOtherDevice={
+          activeParentSession &&
+          activeParentSession.sessionId !== myParentSessionIdRef.current
+            ? activeParentSession
+            : null
+        }
+        isLoggingIn={isLoggingIn}
         onClose={() => {
           setPinModalOpen(false);
           setPinError('');
@@ -2194,15 +2534,19 @@ export default function App() {
       />
 
       <TimerAlarmModal
-        ringingChildren={(['suhyun', 'dahyun'] as ChildKey[])
-          .filter((ck) => timers[ck].isAlarmRinging)
-          .map((ck) => ({
-            childKey: ck,
-            name: CHILDREN_CONFIG[ck].name,
-            info: CHILDREN_CONFIG[ck].info,
-            targetMinutes: timers[ck].targetMinutes,
-            remainingMinutes: summaries[ck].remainingMinutes
-          }))}
+        ringingChildren={
+          isParentMode
+            ? (['suhyun', 'dahyun'] as ChildKey[])
+                .filter((ck) => timers[ck].isAlarmRinging)
+                .map((ck) => ({
+                  childKey: ck,
+                  name: CHILDREN_CONFIG[ck].name,
+                  info: CHILDREN_CONFIG[ck].info,
+                  targetMinutes: timers[ck].targetMinutes,
+                  remainingMinutes: summaries[ck].remainingMinutes
+                }))
+            : []
+        }
         isParentMode={isParentMode}
         onDismissOnly={handleDismissChildAlarm}
         onDismissAndDeduct={(ck) => handleDeductChildTimer(ck, 'target')}

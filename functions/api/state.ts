@@ -60,6 +60,26 @@ async function ensureD1Table(db: D1Database): Promise<void> {
     .run();
 }
 
+async function readExistingD1State(db: D1Database): Promise<Record<string, unknown> | null> {
+  await ensureD1Table(db);
+  const row = await db
+    .prepare('SELECT payload FROM app_state WHERE id = ?1')
+    .bind(STATE_KEY)
+    .first<{ payload: string }>();
+
+  if (!row?.payload) return null;
+  const parsed = JSON.parse(row.payload);
+  return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : null;
+}
+
+function extractSessionId(stateObj: Record<string, unknown> | null): string | null {
+  if (!stateObj || typeof stateObj !== 'object') return null;
+  const session = stateObj.activeParentSession;
+  if (!session || typeof session !== 'object') return null;
+  const sessionId = (session as Record<string, unknown>).sessionId;
+  return typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : null;
+}
+
 export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
   const method = request.method.toUpperCase();
 
@@ -85,6 +105,8 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
     });
   }
 
+  const storageType = kv ? 'kv' : 'd1';
+
   try {
     if (method === 'GET') {
       if (kv) {
@@ -98,17 +120,7 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
       }
 
       if (db) {
-        await ensureD1Table(db);
-        const row = await db
-          .prepare('SELECT payload FROM app_state WHERE id = ?1')
-          .bind(STATE_KEY)
-          .first<{ payload: string }>();
-
-        let parsed: unknown = null;
-        if (row?.payload) {
-          parsed = JSON.parse(row.payload);
-        }
-
+        const parsed = await readExistingD1State(db);
         return jsonResponse({
           ok: true,
           configured: true,
@@ -125,7 +137,7 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
           {
             ok: false,
             configured: true,
-            storageType: kv ? 'kv' : 'd1',
+            storageType,
             state: null,
             error: 'Invalid payload: childrenData is required.'
           },
@@ -133,16 +145,82 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
         );
       }
 
+      const clientSessionId =
+        typeof body.clientSessionId === 'string' && body.clientSessionId.trim()
+          ? body.clientSessionId.trim()
+          : null;
+      const claimSession = body.claimSession === true;
+      const releaseSession = body.releaseSession === true;
+
+      const {
+        clientSessionId: _omitClientSessionId,
+        claimSession: _omitClaimSession,
+        releaseSession: _omitReleaseSession,
+        ...cleanBody
+      } = body;
+
       const updatedAt =
-        typeof body.updatedAt === 'number' && Number.isFinite(body.updatedAt)
-          ? body.updatedAt
+        typeof cleanBody.updatedAt === 'number' && Number.isFinite(cleanBody.updatedAt)
+          ? cleanBody.updatedAt
           : Date.now();
 
-      const payload = {
-        ...body,
-        version: typeof body.version === 'number' ? body.version : 3,
+      const payload: Record<string, unknown> = {
+        ...cleanBody,
+        version: typeof cleanBody.version === 'number' ? cleanBody.version : 3,
         updatedAt
       };
+
+      const existing = kv
+        ? await kv.get<Record<string, unknown>>(STATE_KEY, 'json')
+        : db
+        ? await readExistingD1State(db)
+        : null;
+      const existingSessionId = extractSessionId(existing);
+
+      if (claimSession) {
+        const claimedSessionId = extractSessionId(payload);
+        if (!claimedSessionId) {
+          return jsonResponse(
+            {
+              ok: false,
+              configured: true,
+              storageType,
+              state: existing,
+              error: 'Invalid session claim: activeParentSession.sessionId is required.'
+            },
+            400
+          );
+        }
+      } else if (releaseSession) {
+        if (existingSessionId && clientSessionId !== existingSessionId) {
+          return jsonResponse(
+            {
+              ok: false,
+              configured: true,
+              storageType,
+              sessionReplaced: true,
+              state: existing,
+              error: 'Active parent session belongs to another device.'
+            },
+            409
+          );
+        }
+        payload.activeParentSession = null;
+      } else if (existing !== null) {
+        if (!existingSessionId || !clientSessionId || clientSessionId !== existingSessionId) {
+          return jsonResponse(
+            {
+              ok: false,
+              configured: true,
+              storageType,
+              sessionReplaced: true,
+              state: existing,
+              error: 'Active parent session required or replaced by another device.'
+            },
+            409
+          );
+        }
+      }
 
       const serialized = JSON.stringify(payload);
 
@@ -178,7 +256,7 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
       {
         ok: false,
         configured: true,
-        storageType: kv ? 'kv' : 'd1',
+        storageType,
         state: null,
         error: `Method ${method} not allowed`
       },
@@ -190,7 +268,7 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
       {
         ok: false,
         configured: true,
-        storageType: kv ? 'kv' : 'd1',
+        storageType,
         state: null,
         error: message
       },
