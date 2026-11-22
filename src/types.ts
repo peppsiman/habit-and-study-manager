@@ -49,6 +49,8 @@ export interface PraiseSticker {
 export interface ChildData {
   weekTitle: string;
   checks: Record<string, Record<DayKey, CheckStatus>>;
+  earnedScores?: Record<string, Partial<Record<DayKey, number>>>;
+  itemScores?: Record<string, number>;
   clothesSubChecks: Record<DayKey, Record<string, boolean>>;
   usedYoutubeMinutes: number;
   youtubeLogs: YoutubeLog[];
@@ -114,6 +116,8 @@ export interface ScoreSummary {
   incompleteCount: number;
   dailyScores: Record<DayKey, number>;
   dailyMakeups: Record<DayKey, number>;
+  effectiveDailyMaxScores: Record<DayKey, number>;
+  effectiveWeeklyMaxScore: number;
   totalEarnedMinutes: number;
   usedMinutes: number;
   remainingMinutes: number;

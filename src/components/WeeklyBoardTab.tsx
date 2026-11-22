@@ -19,6 +19,7 @@ import {
   ScoreSummary,
   StampMode
 } from '../types';
+import { getCellEarnedScore } from '../utils/scoreUtils';
 
 interface WeeklyBoardTabProps {
   currentConfig: ChildConfig;
@@ -80,7 +81,7 @@ export const WeeklyBoardTab: React.FC<WeeklyBoardTabProps> = ({
               {currentConfig.name} 주간 채점표
             </h2>
             <span className="text-xs text-slate-500 tabular-nums">
-              {currentConfig.info} · 일일 {currentConfig.dailyMaxScore}점 · 주간 {currentConfig.weeklyMaxScore}점 만점
+              {currentConfig.info} · 일일 {currentConfig.dailyMaxScore}점 · 이번 주 {scoreSummary.effectiveWeeklyMaxScore}점 만점
             </span>
           </div>
           {isParentMode ? (
@@ -253,9 +254,14 @@ export const WeeklyBoardTab: React.FC<WeeklyBoardTabProps> = ({
                   const rowChecks = currentData.checks?.[item.id] || {};
                   const rowSum = DAYS.reduce((acc, d) => {
                     const st = rowChecks[d.key] || 'NONE';
-                    return st !== 'NONE' ? acc + item.score : acc;
+                    return st !== 'NONE'
+                      ? acc + getCellEarnedScore(item, d.key, currentData)
+                      : acc;
                   }, 0);
-                  const rowMax = item.score * 5;
+                  const rowMax = DAYS.reduce((acc, d) => {
+                    const st = rowChecks[d.key] || 'NONE';
+                    return acc + (st !== 'NONE' ? getCellEarnedScore(item, d.key, currentData) : item.score);
+                  }, 0);
 
                   return (
                     <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
@@ -270,11 +276,19 @@ export const WeeklyBoardTab: React.FC<WeeklyBoardTabProps> = ({
 
                       {DAYS.map((day) => {
                         const status = rowChecks[day.key] || 'NONE';
+                        const earnedPts =
+                          status !== 'NONE' ? getCellEarnedScore(item, day.key, currentData) : item.score;
+                        const isHistoricalScore = status !== 'NONE' && earnedPts !== item.score;
                         return (
                           <td key={day.key} className="p-1.5 text-center">
                             <button
                               type="button"
                               onClick={() => onCellToggle(item, day.key, day.label)}
+                              title={
+                                isHistoricalScore
+                                  ? `배점 변경 전 기존 배점(${earnedPts}점) 유지됨`
+                                  : undefined
+                              }
                               className={`w-full h-12 rounded-xl font-semibold text-xs flex flex-col items-center justify-center gap-0.5 border transition-all duration-150 ${
                                 status === 'WEEKDAY'
                                   ? 'bg-emerald-600 text-white border-emerald-700 hover:bg-emerald-700'
@@ -287,7 +301,10 @@ export const WeeklyBoardTab: React.FC<WeeklyBoardTabProps> = ({
                                 <>
                                   <CheckCircle2 className="w-4 h-4" />
                                   <span className="tabular-nums font-mono text-[11px]">
-                                    +{item.score}
+                                    +{earnedPts}
+                                    {isHistoricalScore && (
+                                      <span className="ml-0.5 text-[9px] font-sans opacity-85">기존</span>
+                                    )}
                                   </span>
                                 </>
                               )}
@@ -298,7 +315,10 @@ export const WeeklyBoardTab: React.FC<WeeklyBoardTabProps> = ({
                                     <span className="text-[10px] font-bold">보충</span>
                                   </div>
                                   <span className="tabular-nums font-mono text-[11px]">
-                                    +{item.score}
+                                    +{earnedPts}
+                                    {isHistoricalScore && (
+                                      <span className="ml-0.5 text-[9px] font-sans opacity-85">기존</span>
+                                    )}
                                   </span>
                                 </>
                               )}
@@ -340,9 +360,14 @@ export const WeeklyBoardTab: React.FC<WeeklyBoardTabProps> = ({
                   const rowChecks = currentData.checks?.[item.id] || {};
                   const rowSum = DAYS.reduce((acc, d) => {
                     const st = rowChecks[d.key] || 'NONE';
-                    return st !== 'NONE' ? acc + item.score : acc;
+                    return st !== 'NONE'
+                      ? acc + getCellEarnedScore(item, d.key, currentData)
+                      : acc;
                   }, 0);
-                  const rowMax = item.score * 5;
+                  const rowMax = DAYS.reduce((acc, d) => {
+                    const st = rowChecks[d.key] || 'NONE';
+                    return acc + (st !== 'NONE' ? getCellEarnedScore(item, d.key, currentData) : item.score);
+                  }, 0);
 
                   return (
                     <tr key={item.id} className="hover:bg-slate-50/60 transition-colors">
@@ -371,6 +396,9 @@ export const WeeklyBoardTab: React.FC<WeeklyBoardTabProps> = ({
 
                       {DAYS.map((day) => {
                         const status = rowChecks[day.key] || 'NONE';
+                        const earnedPts =
+                          status !== 'NONE' ? getCellEarnedScore(item, day.key, currentData) : item.score;
+                        const isHistoricalScore = status !== 'NONE' && earnedPts !== item.score;
                         const daySubMap = currentData.clothesSubChecks?.[day.key] || {};
                         const checkedSubCount = item.subItems
                           ? item.subItems.filter((s) => Boolean(daySubMap[s])).length
@@ -382,6 +410,11 @@ export const WeeklyBoardTab: React.FC<WeeklyBoardTabProps> = ({
                               <button
                                 type="button"
                                 onClick={() => onCellToggle(item, day.key, day.label)}
+                                title={
+                                  isHistoricalScore
+                                    ? `배점 변경 전 기존 배점(${earnedPts}점) 유지됨`
+                                    : undefined
+                                }
                                 className={`w-full h-12 rounded-xl font-semibold text-xs flex flex-col items-center justify-center gap-0.5 border transition-all duration-150 ${
                                   status === 'WEEKDAY'
                                     ? 'bg-emerald-600 text-white border-emerald-700 hover:bg-emerald-700'
@@ -394,7 +427,10 @@ export const WeeklyBoardTab: React.FC<WeeklyBoardTabProps> = ({
                                   <>
                                     <CheckCircle2 className="w-4 h-4" />
                                     <span className="tabular-nums font-mono text-[11px]">
-                                      +{item.score}
+                                      +{earnedPts}
+                                      {isHistoricalScore && (
+                                        <span className="ml-0.5 text-[9px] font-sans opacity-85">기존</span>
+                                      )}
                                     </span>
                                   </>
                                 )}
@@ -405,7 +441,10 @@ export const WeeklyBoardTab: React.FC<WeeklyBoardTabProps> = ({
                                       <span className="text-[10px] font-bold">보충</span>
                                     </div>
                                     <span className="tabular-nums font-mono text-[11px]">
-                                      +{item.score}
+                                      +{earnedPts}
+                                      {isHistoricalScore && (
+                                        <span className="ml-0.5 text-[9px] font-sans opacity-85">기존</span>
+                                      )}
                                     </span>
                                   </>
                                 )}
@@ -452,7 +491,7 @@ export const WeeklyBoardTab: React.FC<WeeklyBoardTabProps> = ({
                         {scoreSummary.dailyScores[day.key]}점
                       </div>
                       <div className="text-[11px] text-slate-400">
-                        / {currentConfig.dailyMaxScore}
+                        / {scoreSummary.effectiveDailyMaxScores[day.key]}
                         {scoreSummary.dailyMakeups[day.key] > 0 && (
                           <span className="text-amber-400 ml-1">
                             (+{scoreSummary.dailyMakeups[day.key]})

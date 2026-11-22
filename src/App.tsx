@@ -21,7 +21,6 @@ import { motion, AnimatePresence } from 'motion/react';
 import {
   CHILDREN_CONFIG,
   CLOTHES_SUB_ITEMS,
-  COMMON_HABIT_ITEMS,
   DAYS,
   STORAGE_KEY_DATA,
   STORAGE_KEY_PIN,
@@ -51,7 +50,10 @@ import {
   createInitialChildData,
   formatMinutesReadable,
   formatTimer,
-  normalizeChildData
+  freezeEarnedScoresForChild,
+  getEffectiveChildConfig,
+  normalizeChildData,
+  sanitizeItemScore
 } from './utils/scoreUtils';
 import {
   computeTimerRemaining,
@@ -696,6 +698,14 @@ export default function App() {
     timers.dahyun.isAlarmRinging
   ]);
 
+  const effectiveConfigs = useMemo(
+    () => ({
+      suhyun: getEffectiveChildConfig('suhyun', childrenData.suhyun),
+      dahyun: getEffectiveChildConfig('dahyun', childrenData.dahyun)
+    }),
+    [childrenData]
+  );
+
   const summaries = useMemo(() => {
     return {
       suhyun: computeChildScoreSummary('suhyun', childrenData.suhyun),
@@ -703,7 +713,7 @@ export default function App() {
     };
   }, [childrenData]);
 
-  const currentConfig = CHILDREN_CONFIG[activeChild];
+  const currentConfig = effectiveConfigs[activeChild];
   const currentData = childrenData[activeChild];
   const scoreSummary = summaries[activeChild];
   const allItems = useMemo(
@@ -1003,6 +1013,25 @@ export default function App() {
         }
       };
 
+      const existingEarned = childObj.earnedScores?.[item.id]?.[dayKey];
+      const existingRow = { ...(childObj.earnedScores?.[item.id] || {}) };
+      const updatedEarnedScores = { ...(childObj.earnedScores || {}) };
+      let awardedScore = item.score;
+
+      if (nextStatus === 'NONE') {
+        awardedScore = existingEarned ?? item.score;
+        delete existingRow[dayKey];
+        if (Object.keys(existingRow).length > 0) {
+          updatedEarnedScores[item.id] = existingRow;
+        } else {
+          delete updatedEarnedScores[item.id];
+        }
+      } else {
+        awardedScore = currentStatus === 'NONE' ? item.score : (existingEarned ?? item.score);
+        existingRow[dayKey] = awardedScore;
+        updatedEarnedScores[item.id] = existingRow;
+      }
+
       const updatedClothesSub = { ...(childObj.clothesSubChecks || {}) };
       if (item.id === 'hb_clothes_all') {
         const allDone = nextStatus !== 'NONE';
@@ -1024,24 +1053,25 @@ export default function App() {
           {
             id: `makeup-${Date.now()}`,
             type: 'MAKEUP_ADD',
-            minutes: item.score,
-            memo: `[주말 보충] ${dayLabel}요일 '${displayItemName}' 완료 (+${item.score}분)`,
+            minutes: awardedScore,
+            memo: `[주말 보충] ${dayLabel}요일 '${displayItemName}' 완료 (+${awardedScore}분)`,
             timestamp: `주말 보충 ${nowStr}`,
             relatedItem: { itemId: item.id, dayKey }
           },
           ...updatedLogs
         ];
         showToast(
-          `주말 보충 완료: '${displayItemName}' +${item.score}점 (유튜브 +${item.score}분)`,
+          `주말 보충 완료: '${displayItemName}' +${awardedScore}점 (유튜브 +${awardedScore}분)`,
           'success'
         );
       } else if (currentStatus === 'WEEKEND' && nextStatus !== 'WEEKEND') {
+        const cancelledScore = existingEarned ?? item.score;
         updatedLogs = [
           {
             id: `makeup-cancel-${Date.now()}`,
             type: 'MAKEUP_CANCEL',
-            minutes: -item.score,
-            memo: `[보충 해제] ${dayLabel}요일 '${displayItemName}' 변경 (-${item.score}분)`,
+            minutes: -cancelledScore,
+            memo: `[보충 해제] ${dayLabel}요일 '${displayItemName}' 변경 (-${cancelledScore}분)`,
             timestamp: `변경 ${nowStr}`
           },
           ...updatedLogs
@@ -1053,6 +1083,7 @@ export default function App() {
         [activeChild]: {
           ...childObj,
           checks: updatedChecks,
+          earnedScores: updatedEarnedScores,
           clothesSubChecks: updatedClothesSub,
           youtubeLogs: updatedLogs
         }
@@ -1074,7 +1105,9 @@ export default function App() {
     };
 
     const isAll8Completed = CLOTHES_SUB_ITEMS.every((s) => Boolean(updatedDaySubs[s]));
-    const clothesItem = COMMON_HABIT_ITEMS[0];
+    const clothesItem =
+      currentConfig.habitItems.find((i) => i.id === 'hb_clothes_all') ||
+      currentConfig.habitItems[0];
     const prevMainStatus = currentData.checks?.hb_clothes_all?.[dayKey] || 'NONE';
 
     let nextMainStatus: CheckStatus = 'NONE';
@@ -1084,6 +1117,23 @@ export default function App() {
 
     setChildrenData((prev) => {
       const childObj = prev[activeChild];
+      const existingEarned = childObj.earnedScores?.hb_clothes_all?.[dayKey];
+      const nextClothesEarnedRow = { ...(childObj.earnedScores?.hb_clothes_all || {}) };
+      const updatedEarnedScores = { ...(childObj.earnedScores || {}) };
+
+      if (isAll8Completed) {
+        nextClothesEarnedRow[dayKey] =
+          prevMainStatus === 'NONE' ? clothesItem.score : (existingEarned ?? clothesItem.score);
+        updatedEarnedScores.hb_clothes_all = nextClothesEarnedRow;
+      } else {
+        delete nextClothesEarnedRow[dayKey];
+        if (Object.keys(nextClothesEarnedRow).length > 0) {
+          updatedEarnedScores.hb_clothes_all = nextClothesEarnedRow;
+        } else {
+          delete updatedEarnedScores.hb_clothes_all;
+        }
+      }
+
       return {
         ...prev,
         [activeChild]: {
@@ -1092,6 +1142,7 @@ export default function App() {
             ...(childObj.clothesSubChecks || {}),
             [dayKey]: updatedDaySubs
           },
+          earnedScores: updatedEarnedScores,
           checks: {
             ...(childObj.checks || {}),
             hb_clothes_all: {
@@ -1127,8 +1178,10 @@ export default function App() {
     setChildrenData((prev) => {
       const childObj = prev[activeChild];
       const updatedChecks = { ...(childObj.checks || {}) };
+      const updatedEarnedScores = { ...(childObj.earnedScores || {}) };
 
       allItems.forEach((item) => {
+        const prevStatus: CheckStatus = childObj.checks?.[item.id]?.[dayKey] || 'NONE';
         updatedChecks[item.id] = {
           ...(updatedChecks[item.id] || {
             MON: 'NONE',
@@ -1139,6 +1192,11 @@ export default function App() {
           }),
           [dayKey]: targetStatus
         };
+
+        const existingEarned = childObj.earnedScores?.[item.id]?.[dayKey];
+        const nextRow = { ...(updatedEarnedScores[item.id] || {}) };
+        nextRow[dayKey] = prevStatus === 'NONE' ? item.score : (existingEarned ?? item.score);
+        updatedEarnedScores[item.id] = nextRow;
       });
 
       const updatedClothesSub = {
@@ -1154,6 +1212,7 @@ export default function App() {
         [activeChild]: {
           ...childObj,
           checks: updatedChecks,
+          earnedScores: updatedEarnedScores,
           clothesSubChecks: updatedClothesSub
         }
       };
@@ -1488,6 +1547,17 @@ export default function App() {
       const { itemId, dayKey } = targetLog.relatedItem;
       setChildrenData((prev) => {
         const childObj = prev[activeChild];
+        const updatedEarnedScores = { ...(childObj.earnedScores || {}) };
+        if (updatedEarnedScores[itemId]) {
+          const nextRow = { ...updatedEarnedScores[itemId] };
+          delete nextRow[dayKey];
+          if (Object.keys(nextRow).length > 0) {
+            updatedEarnedScores[itemId] = nextRow;
+          } else {
+            delete updatedEarnedScores[itemId];
+          }
+        }
+
         return {
           ...prev,
           [activeChild]: {
@@ -1505,6 +1575,7 @@ export default function App() {
                 [dayKey]: 'NONE'
               }
             },
+            earnedScores: updatedEarnedScores,
             youtubeLogs: (childObj.youtubeLogs || []).filter((l) => l.id !== logId)
           }
         };
@@ -1609,6 +1680,7 @@ export default function App() {
           [activeChild]: {
             ...prev[activeChild],
             checks: emptyChecks,
+            earnedScores: {},
             clothesSubChecks: emptySubChecks,
             usedYoutubeMinutes: 0,
             youtubeLogs: []
@@ -1618,6 +1690,39 @@ export default function App() {
         showToast(`${currentConfig.name}이의 새로운 주간 채점표가 초기화되었습니다.`, 'success');
       }
     });
+  };
+
+  const handleSaveItemScores = (nextScoresByChild: Record<ChildKey, Record<string, number>>) => {
+    if (!requireParentMode('배점표 수정')) return;
+
+    setChildrenData((prev) => {
+      const updateChild = (childKey: ChildKey): ChildData => {
+        const childObj = prev[childKey];
+        const frozenEarned = freezeEarnedScoresForChild(childKey, childObj);
+        const cfg = CHILDREN_CONFIG[childKey];
+        const nextItemScores: Record<string, number> = {};
+
+        [...cfg.studyItems, ...cfg.habitItems].forEach((item) => {
+          nextItemScores[item.id] = sanitizeItemScore(
+            nextScoresByChild[childKey]?.[item.id],
+            childObj.itemScores?.[item.id] ?? item.score
+          );
+        });
+
+        return {
+          ...childObj,
+          earnedScores: frozenEarned,
+          itemScores: nextItemScores
+        };
+      };
+
+      return {
+        suhyun: updateChild('suhyun'),
+        dahyun: updateChild('dahyun')
+      };
+    });
+
+    showToast('배점표가 저장되었습니다. 기존 획득 점수는 이전 배점 그대로 유지됩니다.', 'success');
   };
 
   const handleResetStickerBoard = () => {
@@ -1676,6 +1781,7 @@ export default function App() {
           return {
             ...prevChildObj,
             checks: emptyChecks,
+            earnedScores: {},
             clothesSubChecks: emptySubChecks,
             usedYoutubeMinutes: 0,
             youtubeLogs: []
@@ -1812,7 +1918,7 @@ export default function App() {
                           <span className="text-[11px] font-medium text-slate-400">{cfg.info}</span>
                         </div>
                         <div className="text-[11px] text-slate-500 tabular-nums mt-0.5">
-                          {sum.totalScore} / {cfg.weeklyMaxScore}점
+                          {sum.totalScore} / {sum.effectiveWeeklyMaxScore}점
                         </div>
                       </div>
                     </div>
@@ -2138,7 +2244,7 @@ export default function App() {
                   >
                     <span>{cfg.name}</span>
                     <span className={isActive ? 'text-white/80' : 'text-slate-400'}>
-                      {sum.totalScore}/{cfg.weeklyMaxScore}
+                      {sum.totalScore}/{sum.effectiveWeeklyMaxScore}
                     </span>
                   </button>
                 );
@@ -2286,7 +2392,7 @@ export default function App() {
                   {scoreSummary.totalScore}
                 </span>
                 <span className="text-sm font-medium text-slate-400">
-                  / {currentConfig.weeklyMaxScore}점
+                  / {scoreSummary.effectiveWeeklyMaxScore}점
                 </span>
               </div>
               <div className="text-xs text-slate-500 pt-2.5 border-t border-slate-100 w-full tabular-nums">
@@ -2488,6 +2594,8 @@ export default function App() {
                         activeParentSession?.sessionId === myParentSessionIdRef.current
                     )
                   }
+                  effectiveConfigs={effectiveConfigs}
+                  onSaveItemScores={handleSaveItemScores}
                 />
               )}
             </motion.div>

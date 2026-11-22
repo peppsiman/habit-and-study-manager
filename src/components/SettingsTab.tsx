@@ -1,7 +1,23 @@
-import React from 'react';
-import { Cloud, CloudOff, KeyRound, Lock, RefreshCw, RotateCcw, ShieldCheck } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import {
+  Check,
+  Cloud,
+  CloudOff,
+  Info,
+  KeyRound,
+  Lock,
+  RefreshCw,
+  RotateCcw,
+  ShieldCheck
+} from 'lucide-react';
 import { CHILDREN_CONFIG } from '../constants';
-import { ChildKey, CloudStorageType, ParentSessionInfo, SyncStatus } from '../types';
+import {
+  ChildConfig,
+  ChildKey,
+  CloudStorageType,
+  ParentSessionInfo,
+  SyncStatus
+} from '../types';
 
 interface SettingsTabProps {
   isParentMode: boolean;
@@ -24,6 +40,24 @@ interface SettingsTabProps {
   onManualSync: () => void;
   activeParentSession: ParentSessionInfo | null;
   isCurrentDeviceOwner: boolean;
+  effectiveConfigs: Record<ChildKey, ChildConfig>;
+  onSaveItemScores: (nextScores: Record<ChildKey, Record<string, number>>) => void;
+}
+
+function buildDraftFromConfigs(
+  configs: Record<ChildKey, ChildConfig>
+): Record<ChildKey, Record<string, string>> {
+  const buildChild = (ck: ChildKey) => {
+    const cfg = configs[ck];
+    return [...cfg.studyItems, ...cfg.habitItems].reduce((acc, it) => {
+      acc[it.id] = String(it.score);
+      return acc;
+    }, {} as Record<string, string>);
+  };
+  return {
+    suhyun: buildChild('suhyun'),
+    dahyun: buildChild('dahyun')
+  };
 }
 
 export const SettingsTab: React.FC<SettingsTabProps> = ({
@@ -46,8 +80,93 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   lastSyncedAt,
   onManualSync,
   activeParentSession,
-  isCurrentDeviceOwner
+  isCurrentDeviceOwner,
+  effectiveConfigs,
+  onSaveItemScores
 }) => {
+  const [draftScores, setDraftScores] = useState<Record<ChildKey, Record<string, string>>>(() =>
+    buildDraftFromConfigs(effectiveConfigs)
+  );
+
+  useEffect(() => {
+    setDraftScores(buildDraftFromConfigs(effectiveConfigs));
+  }, [effectiveConfigs]);
+
+  const getDraftNumber = useCallback(
+    (ck: ChildKey, itemId: string, fallback: number): number => {
+      const raw = draftScores[ck]?.[itemId];
+      if (raw === undefined || raw.trim() === '') return fallback;
+      const parsed = parseInt(raw, 10);
+      if (isNaN(parsed)) return fallback;
+      return Math.min(200, Math.max(0, Math.round(parsed)));
+    },
+    [draftScores]
+  );
+
+  const hasUnsavedChanges = useMemo(() => {
+    return (['suhyun', 'dahyun'] as ChildKey[]).some((ck) => {
+      const cfg = effectiveConfigs[ck];
+      return [...cfg.studyItems, ...cfg.habitItems].some((it) => {
+        const draftRaw = draftScores[ck]?.[it.id] ?? String(it.score);
+        if (draftRaw.trim() === '') return true;
+        return getDraftNumber(ck, it.id, it.score) !== it.score;
+      });
+    });
+  }, [draftScores, effectiveConfigs, getDraftNumber]);
+
+  const isDefaultDraftScores = useMemo(() => {
+    return (['suhyun', 'dahyun'] as ChildKey[]).every((ck) => {
+      const defCfg = CHILDREN_CONFIG[ck];
+      return [...defCfg.studyItems, ...defCfg.habitItems].every(
+        (it) => getDraftNumber(ck, it.id, it.score) === it.score
+      );
+    });
+  }, [getDraftNumber]);
+
+  const handleScoreInputChange = (ck: ChildKey, itemId: string, val: string) => {
+    if (val === '' || /^\d{0,3}$/.test(val)) {
+      setDraftScores((prev) => ({
+        ...prev,
+        [ck]: {
+          ...prev[ck],
+          [itemId]: val
+        }
+      }));
+    }
+  };
+
+  const handleScoreInputBlur = (ck: ChildKey, itemId: string, savedScore: number) => {
+    const normalized = String(getDraftNumber(ck, itemId, savedScore));
+    setDraftScores((prev) => ({
+      ...prev,
+      [ck]: {
+        ...prev[ck],
+        [itemId]: normalized
+      }
+    }));
+  };
+
+  const handleLoadDefaultScores = () => {
+    setDraftScores(buildDraftFromConfigs(CHILDREN_CONFIG));
+  };
+
+  const handleCancelScoreEdits = () => {
+    setDraftScores(buildDraftFromConfigs(effectiveConfigs));
+  };
+
+  const handleSaveScoresClick = () => {
+    const nextScores: Record<ChildKey, Record<string, number>> = {
+      suhyun: {},
+      dahyun: {}
+    };
+    (['suhyun', 'dahyun'] as ChildKey[]).forEach((ck) => {
+      const cfg = effectiveConfigs[ck];
+      [...cfg.studyItems, ...cfg.habitItems].forEach((it) => {
+        nextScores[ck][it.id] = getDraftNumber(ck, it.id, it.score);
+      });
+    });
+    onSaveItemScores(nextScores);
+  };
   const storageLabel =
     storageType === 'kv'
       ? 'Cloudflare KV 연결됨'
@@ -307,37 +426,84 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
             </h2>
             <p className="text-xs text-slate-500">
               평일 획득 점수 + 주말 보충 가점 = 주말 유튜브 시청 가능 시간 (1점 = 1분)
+              {!isParentMode && ' · 배점 수정은 부모님 로그인 후 가능'}
             </p>
           </div>
 
           {isParentMode && (
-            <button
-              type="button"
-              onClick={onResetAllDataExceptStickers}
-              className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-            >
-              <RotateCcw className="w-3.5 h-3.5" />
-              <span>데이터 초기화 (칭찬스티커 제외)</span>
-            </button>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={isDefaultDraftScores}
+                onClick={handleLoadDefaultScores}
+                className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
+              >
+                기본 배점 불러오기
+              </button>
+              {hasUnsavedChanges && (
+                <button
+                  type="button"
+                  onClick={handleCancelScoreEdits}
+                  className="px-3 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
+                >
+                  취소
+                </button>
+              )}
+              <button
+                type="button"
+                disabled={!hasUnsavedChanges}
+                onClick={handleSaveScoresClick}
+                className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+              >
+                <Check className="w-3.5 h-3.5" />
+                <span>배점 변경 저장</span>
+              </button>
+              <button
+                type="button"
+                onClick={onResetAllDataExceptStickers}
+                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+              >
+                <RotateCcw className="w-3.5 h-3.5" />
+                <span>데이터 초기화 (칭찬스티커 제외)</span>
+              </button>
+            </div>
           )}
         </div>
 
+        {isParentMode && (
+          <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-200/80 text-xs text-blue-900 flex items-start gap-2.5 leading-relaxed">
+            <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+            <span>
+              배점을 수정하고 <strong>배점 변경 저장</strong>을 누르면 앞으로 새로 체크하는 항목부터 새 배점이 적용됩니다. 이미 완료한 항목의 점수는 기존 배점 그대로 유지됩니다.
+            </span>
+          </div>
+        )}
+
         <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
           {(['suhyun', 'dahyun'] as ChildKey[]).map((ck) => {
-            const cfg = CHILDREN_CONFIG[ck];
-            const studyDaily = cfg.studyItems.reduce((a, b) => a + b.score, 0);
-            const habitDaily = cfg.habitItems.reduce((a, b) => a + b.score, 0);
+            const cfg = effectiveConfigs[ck];
+            const isSuhyun = ck === 'suhyun';
+            const studyDaily = cfg.studyItems.reduce(
+              (a, b) => a + (isParentMode ? getDraftNumber(ck, b.id, b.score) : b.score),
+              0
+            );
+            const habitDaily = cfg.habitItems.reduce(
+              (a, b) => a + (isParentMode ? getDraftNumber(ck, b.id, b.score) : b.score),
+              0
+            );
+            const dailyTotal = studyDaily + habitDaily;
+            const weeklyTotal = dailyTotal * 5;
 
             return (
               <div
                 key={ck}
                 className="rounded-xl border border-slate-200/90 overflow-hidden bg-white"
               >
-                <div className="px-4 py-3.5 bg-slate-50 border-b border-slate-200/80 flex items-center justify-between">
+                <div className="px-4 py-3.5 bg-slate-50 border-b border-slate-200/80 flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <span
                       className={`w-6 h-6 rounded-lg text-xs font-bold flex items-center justify-center text-white ${
-                        ck === 'suhyun' ? 'bg-blue-600' : 'bg-rose-600'
+                        isSuhyun ? 'bg-blue-600' : 'bg-rose-600'
                       }`}
                     >
                       {cfg.name.slice(0, 1)}
@@ -347,7 +513,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                     </span>
                   </div>
                   <span className="text-xs font-semibold text-slate-600 tabular-nums">
-                    일일 {cfg.dailyMaxScore}점 · 주간 {cfg.weeklyMaxScore}점
+                    일일 {dailyTotal}점 · 주간 {weeklyTotal}점
                   </span>
                 </div>
 
@@ -356,40 +522,118 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                     <span>개별 학습과목 ({cfg.studyItems.length}과목)</span>
                     <span>일일 {studyDaily}점</span>
                   </div>
-                  {cfg.studyItems.map((it) => (
-                    <div
-                      key={it.id}
-                      className="px-4 py-2.5 flex items-center justify-between text-slate-700"
-                    >
-                      <span className="font-medium">{it.name}</span>
-                      <span className="font-mono font-semibold text-slate-900 tabular-nums">
-                        {it.score}점
-                      </span>
-                    </div>
-                  ))}
+                  {cfg.studyItems.map((it) => {
+                    const draftVal = draftScores[ck]?.[it.id] ?? String(it.score);
+                    const numericDraft = getDraftNumber(ck, it.id, it.score);
+                    const isModified = isParentMode && numericDraft !== it.score;
+
+                    return (
+                      <div
+                        key={it.id}
+                        className="px-4 py-2.5 flex items-center justify-between gap-2 text-slate-700"
+                      >
+                        <span className="font-medium">{it.name}</span>
+                        {isParentMode ? (
+                          <div className="flex items-center gap-2 shrink-0">
+                            {isModified && (
+                              <span className="text-[11px] text-slate-400 tabular-nums">
+                                기존 {it.score}점
+                              </span>
+                            )}
+                            <div className="relative w-20">
+                              <input
+                                type="number"
+                                min={0}
+                                max={200}
+                                value={draftVal}
+                                onChange={(e) =>
+                                  handleScoreInputChange(ck, it.id, e.target.value)
+                                }
+                                onBlur={() => handleScoreInputBlur(ck, it.id, it.score)}
+                                aria-label={`${cfg.name} ${it.name} 배점`}
+                                className={`w-full pl-2.5 pr-6 py-1 rounded-lg border text-right font-mono font-semibold text-slate-900 tabular-nums focus:outline-none focus:ring-2 ${
+                                  isModified
+                                    ? isSuhyun
+                                      ? 'border-blue-500 bg-blue-50/40 focus:ring-blue-500'
+                                      : 'border-rose-500 bg-rose-50/40 focus:ring-rose-500'
+                                    : 'border-slate-300 bg-white focus:ring-slate-900'
+                                }`}
+                              />
+                              <span className="absolute right-2 top-1 text-[11px] text-slate-400 pointer-events-none">
+                                점
+                              </span>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="font-mono font-semibold text-slate-900 tabular-nums">
+                            {it.score}점
+                          </span>
+                        )}
+                      </div>
+                    );
+                  })}
 
                   <div className="px-4 py-2 bg-slate-50/50 font-semibold text-slate-600 flex justify-between tabular-nums">
                     <span>공통 생활습관 (3항목)</span>
                     <span>일일 {habitDaily}점</span>
                   </div>
-                  {cfg.habitItems.map((it) => (
-                    <div
-                      key={it.id}
-                      className="px-4 py-2.5 flex items-center justify-between gap-2 text-slate-700"
-                    >
-                      <span className="font-medium">
-                        {it.shortName || it.name}
-                        {it.subItems && (
-                          <span className="block text-[11px] text-slate-400 font-normal">
-                            {it.subItems.join(', ')}
+                  {cfg.habitItems.map((it) => {
+                    const draftVal = draftScores[ck]?.[it.id] ?? String(it.score);
+                    const numericDraft = getDraftNumber(ck, it.id, it.score);
+                    const isModified = isParentMode && numericDraft !== it.score;
+
+                    return (
+                      <div
+                        key={it.id}
+                        className="px-4 py-2.5 flex items-center justify-between gap-2 text-slate-700"
+                      >
+                        <span className="font-medium">
+                          {it.shortName || it.name}
+                          {it.subItems && (
+                            <span className="block text-[11px] text-slate-400 font-normal">
+                              {it.subItems.join(', ')}
+                            </span>
+                          )}
+                        </span>
+                        {isParentMode ? (
+                          <div className="flex items-center gap-2 shrink-0">
+                            {isModified && (
+                              <span className="text-[11px] text-slate-400 tabular-nums">
+                                기존 {it.score}점
+                              </span>
+                            )}
+                            <div className="relative w-20">
+                              <input
+                                type="number"
+                                min={0}
+                                max={200}
+                                value={draftVal}
+                                onChange={(e) =>
+                                  handleScoreInputChange(ck, it.id, e.target.value)
+                                }
+                                onBlur={() => handleScoreInputBlur(ck, it.id, it.score)}
+                                aria-label={`${cfg.name} ${it.shortName || it.name} 배점`}
+                                className={`w-full pl-2.5 pr-6 py-1 rounded-lg border text-right font-mono font-semibold text-slate-900 tabular-nums focus:outline-none focus:ring-2 ${
+                                  isModified
+                                    ? isSuhyun
+                                      ? 'border-blue-500 bg-blue-50/40 focus:ring-blue-500'
+                                      : 'border-rose-500 bg-rose-50/40 focus:ring-rose-500'
+                                    : 'border-slate-300 bg-white focus:ring-slate-900'
+                                }`}
+                              />
+                              <span className="absolute right-2 top-1 text-[11px] text-slate-400 pointer-events-none">
+                                점
+                              </span>
+                            </div>
+                          </div>
+                        ) : (
+                          <span className="font-mono font-semibold text-slate-900 tabular-nums shrink-0">
+                            {it.score}점
                           </span>
                         )}
-                      </span>
-                      <span className="font-mono font-semibold text-slate-900 tabular-nums shrink-0">
-                        {it.score}점
-                      </span>
-                    </div>
-                  ))}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             );

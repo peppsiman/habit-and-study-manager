@@ -26,6 +26,8 @@ export const ClothesHelperModal: React.FC<ClothesModalProps> = ({
   const daySubs = currentData.clothesSubChecks?.[modalData.dayKey] || {};
   const completedCount = CLOTHES_SUB_ITEMS.filter((s) => Boolean(daySubs[s])).length;
   const allCompleted = completedCount === CLOTHES_SUB_ITEMS.length;
+  const clothesScore =
+    currentConfig.habitItems.find((i) => i.id === 'hb_clothes_all')?.score ?? 7;
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
@@ -36,7 +38,7 @@ export const ClothesHelperModal: React.FC<ClothesModalProps> = ({
               {currentConfig.name} · {modalData.dayLabel}요일 옷 정리 8종 점검
             </h3>
             <p className="text-xs text-slate-500">
-              8가지 항목을 모두 완료해야 성공(+7점)으로 인정됩니다.
+              8가지 항목을 모두 완료해야 성공(+{clothesScore}점)으로 인정됩니다.
             </p>
           </div>
           <button
@@ -58,7 +60,7 @@ export const ClothesHelperModal: React.FC<ClothesModalProps> = ({
             <span
               className={`font-bold ${allCompleted ? 'text-emerald-600' : 'text-slate-400'}`}
             >
-              {allCompleted ? '올클리어 (+7점 인정)' : '미완료'}
+              {allCompleted ? `올클리어 (+${clothesScore}점 인정)` : '미완료'}
             </span>
           </div>
           <div className="w-full h-2 rounded-full bg-slate-100 overflow-hidden">
