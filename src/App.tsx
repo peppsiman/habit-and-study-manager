@@ -26,6 +26,9 @@ import {
   CLOTHES_SUB_ITEMS,
   DAYS,
   DEFAULT_CHILD_PINS,
+  INACTIVITY_TIMEOUT_MS,
+  INACTIVITY_WARNING_MS,
+  SESSION_HEARTBEAT_INTERVAL_MS,
   STORAGE_KEY_CHILD_PINS,
   STORAGE_KEY_DATA,
   STORAGE_KEY_PIN,
@@ -86,7 +89,8 @@ import {
   detectDeviceLabel,
   fetchCloudState,
   hydrateTimers,
-  saveCloudState
+  saveCloudState,
+  sendParentSessionHeartbeat
 } from './utils/cloudSync';
 import {
   playAlarmTestSound,
@@ -241,6 +245,25 @@ export default function App() {
   isParentModeRef.current = isParentMode;
   const activeParentSessionRef = useRef<ParentSessionInfo | null>(null);
   activeParentSessionRef.current = activeParentSession;
+
+  const lastActivityAtRef = useRef(Date.now());
+  const lastServerHeartbeatAtRef = useRef(0);
+  const inactivityWarningShownRef = useRef(false);
+  const isAutoLoggingOutRef = useRef(false);
+  const isBusyOperationActive =
+    recordingTarget !== null ||
+    isUploadingAudio ||
+    (isParentMode &&
+      (timers.suhyun.isRunning ||
+        timers.dahyun.isRunning ||
+        Boolean(timers.suhyun.isAlarmRinging) ||
+        Boolean(timers.dahyun.isAlarmRinging)));
+  const isBusyOperationActiveRef = useRef(false);
+  isBusyOperationActiveRef.current = isBusyOperationActive;
+  const wasBusyOperationActiveRef = useRef(false);
+  const performInactivityLogoutRef = useRef<
+    ((remoteState?: CloudAppState | null, options?: { skipServerRelease?: boolean }) => void) | null
+  >(null);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const mediaStreamRef = useRef<MediaStream | null>(null);
@@ -584,6 +607,12 @@ export default function App() {
           setLastSyncedAt(Date.now());
           return false;
         }
+        if (res.sessionExpired) {
+          performInactivityLogoutRef.current?.(res.state, { skipServerRelease: true });
+          setSyncStatus('synced');
+          setLastSyncedAt(Date.now());
+          return false;
+        }
         if (!res.ok) {
           setSyncStatus('error');
           return false;
@@ -595,7 +624,9 @@ export default function App() {
           setActiveParentSession(res.state.activeParentSession ?? null);
         }
         setSyncStatus('synced');
-        setLastSyncedAt(Date.now());
+        const nowTs = Date.now();
+        lastServerHeartbeatAtRef.current = nowTs;
+        setLastSyncedAt(nowTs);
         return true;
       } catch (err) {
         console.error('Cloud save failed', err);
@@ -605,6 +636,59 @@ export default function App() {
     },
     [buildSyncSignature, buildSyncTimersPayload, forceLogoutDueToOtherDevice]
   );
+
+  const performInactivityLogout = useCallback(
+    (remoteState?: CloudAppState | null, options?: { skipServerRelease?: boolean }) => {
+      if (isAutoLoggingOutRef.current) return;
+      isAutoLoggingOutRef.current = true;
+
+      cleanupMediaAndAudio(true);
+      setPinModalOpen(false);
+      setClothesHelperModal(null);
+      setConfirmDialog(null);
+
+      const prevSessionId = myParentSessionIdRef.current;
+      const wasParent = isParentModeRef.current;
+
+      myParentSessionIdRef.current = null;
+      mySessionLoggedInAtRef.current = 0;
+      activeAuthPinRef.current = '';
+      isParentModeRef.current = false;
+      pendingPushRef.current = false;
+      pendingTimerDeductRef.current = null;
+      inactivityWarningShownRef.current = false;
+
+      setIsParentMode(false);
+      setAuthRole(null);
+      setActiveParentSession(null);
+
+      if (remoteState && remoteState.childrenData) {
+        applyRemoteState(remoteState, { suppressAutoLogoutToast: true });
+      }
+
+      setLoginNotice('30분 동안 동작이 없어 보안을 위해 자동 로그아웃되었습니다.');
+      showToast('30분 동안 동작이 없어 자동 로그아웃되었습니다.', 'warning');
+
+      if (!options?.skipServerRelease && wasParent && storageTypeRef.current !== 'none' && prevSessionId) {
+        const snap = latestSyncSnapshotRef.current;
+        void pushStateToCloud(
+          snap.childrenData,
+          snap.savedParentPin,
+          snap.childPins,
+          snap.timers,
+          snap.pendingScoreProposal,
+          snap.lastDynamicScoreWeekId,
+          {
+            releaseSession: true,
+            clientSessionIdOverride: prevSessionId,
+            sessionOverride: null
+          }
+        );
+      }
+    },
+    [applyRemoteState, cleanupMediaAndAudio, pushStateToCloud, showToast]
+  );
+  performInactivityLogoutRef.current = performInactivityLogout;
 
   // Initial cloud hydration on mount
   useEffect(() => {
@@ -779,6 +863,18 @@ export default function App() {
         setStorageType(res.storageType);
 
         if (res.state && res.state.childrenData) {
+          if (
+            isParentModeRef.current &&
+            myParentSessionIdRef.current &&
+            res.expiredSessionId &&
+            res.expiredSessionId === myParentSessionIdRef.current
+          ) {
+            performInactivityLogoutRef.current?.(res.state, { skipServerRelease: true });
+            setSyncStatus('synced');
+            setLastSyncedAt(Date.now());
+            return;
+          }
+
           const remoteUpdated = res.state.updatedAt || 0;
           const remoteSession = res.state.activeParentSession ?? null;
           const sessionChangedRemotely = Boolean(
@@ -871,6 +967,134 @@ export default function App() {
       clearInterval(pollInterval);
     };
   }, [syncFromCloud]);
+
+  // Reset idle clock when an active timer/alarm/recording finishes so user gets a fresh 30-min window
+  useEffect(() => {
+    if (authRole !== null && wasBusyOperationActiveRef.current && !isBusyOperationActive) {
+      lastActivityAtRef.current = Date.now();
+      inactivityWarningShownRef.current = false;
+    }
+    wasBusyOperationActiveRef.current = isBusyOperationActive;
+  }, [authRole, isBusyOperationActive]);
+
+  // 30-minute inactivity auto-logout & parent session heartbeat
+  useEffect(() => {
+    if (authRole === null) return;
+
+    lastActivityAtRef.current = Date.now();
+    inactivityWarningShownRef.current = false;
+    isAutoLoggingOutRef.current = false;
+
+    let lastRecordedActivity = Date.now();
+    let heartbeatInFlight = false;
+
+    const sendHeartbeatIfNeeded = (now: number) => {
+      if (
+        !isParentModeRef.current ||
+        !myParentSessionIdRef.current ||
+        storageTypeRef.current === 'none' ||
+        heartbeatInFlight ||
+        now - lastServerHeartbeatAtRef.current < SESSION_HEARTBEAT_INTERVAL_MS
+      ) {
+        return;
+      }
+
+      heartbeatInFlight = true;
+      const sessionId = myParentSessionIdRef.current;
+      void sendParentSessionHeartbeat(sessionId)
+        .then((res) => {
+          if (myParentSessionIdRef.current !== sessionId) return;
+          if (res.sessionExpired) {
+            performInactivityLogoutRef.current?.(res.state, { skipServerRelease: true });
+          } else if (res.sessionReplaced) {
+            forceLogoutDueToOtherDevice(res.state);
+          } else if (res.ok) {
+            lastServerHeartbeatAtRef.current = Date.now();
+            if (res.state?.activeParentSession) {
+              setActiveParentSession(res.state.activeParentSession);
+            }
+          }
+        })
+        .catch((err) => {
+          console.error('Parent session heartbeat failed', err);
+        })
+        .finally(() => {
+          heartbeatInFlight = false;
+        });
+    };
+
+    const checkInactivityAndHeartbeat = () => {
+      if (isAutoLoggingOutRef.current) return;
+      const now = Date.now();
+
+      if (isBusyOperationActiveRef.current) {
+        lastActivityAtRef.current = now;
+        inactivityWarningShownRef.current = false;
+        sendHeartbeatIfNeeded(now);
+        return;
+      }
+
+      const idleMs = now - lastActivityAtRef.current;
+      if (idleMs >= INACTIVITY_TIMEOUT_MS) {
+        performInactivityLogoutRef.current?.();
+        return;
+      }
+
+      if (idleMs >= INACTIVITY_WARNING_MS && !inactivityWarningShownRef.current) {
+        inactivityWarningShownRef.current = true;
+        showToast('1분 동안 동작이 없으면 보안을 위해 자동 로그아웃됩니다.', 'warning');
+      }
+
+      if (lastActivityAtRef.current > lastServerHeartbeatAtRef.current) {
+        sendHeartbeatIfNeeded(now);
+      }
+    };
+
+    const handleUserActivity = () => {
+      if (isAutoLoggingOutRef.current) return;
+      const now = Date.now();
+
+      // Check expiration before refreshing timestamp (handles wake-from-sleep)
+      if (!isBusyOperationActiveRef.current && now - lastActivityAtRef.current >= INACTIVITY_TIMEOUT_MS) {
+        performInactivityLogoutRef.current?.();
+        return;
+      }
+
+      if (now - lastRecordedActivity < 1000) return;
+      lastRecordedActivity = now;
+      lastActivityAtRef.current = now;
+      inactivityWarningShownRef.current = false;
+    };
+
+    const handleVisibilityOrFocus = () => {
+      if (document.visibilityState === 'visible') {
+        checkInactivityAndHeartbeat();
+      }
+    };
+
+    window.addEventListener('pointerdown', handleUserActivity, { passive: true });
+    window.addEventListener('keydown', handleUserActivity, { passive: true });
+    window.addEventListener('touchstart', handleUserActivity, { passive: true });
+    window.addEventListener('wheel', handleUserActivity, { passive: true });
+    window.addEventListener('mousemove', handleUserActivity, { passive: true });
+    window.addEventListener('scroll', handleUserActivity, { capture: true, passive: true });
+    window.addEventListener('focus', handleVisibilityOrFocus);
+    document.addEventListener('visibilitychange', handleVisibilityOrFocus);
+
+    const intervalId = setInterval(checkInactivityAndHeartbeat, 10000);
+
+    return () => {
+      window.removeEventListener('pointerdown', handleUserActivity);
+      window.removeEventListener('keydown', handleUserActivity);
+      window.removeEventListener('touchstart', handleUserActivity);
+      window.removeEventListener('wheel', handleUserActivity);
+      window.removeEventListener('mousemove', handleUserActivity);
+      window.removeEventListener('scroll', handleUserActivity, { capture: true });
+      window.removeEventListener('focus', handleVisibilityOrFocus);
+      document.removeEventListener('visibilitychange', handleVisibilityOrFocus);
+      clearInterval(intervalId);
+    };
+  }, [authRole, forceLogoutDueToOtherDevice, showToast]);
 
   // Simultaneous timestamp-based countdown interval
   useEffect(() => {
@@ -1068,6 +1292,10 @@ export default function App() {
           return { ok: false, error: `${childName} 비밀번호가 일치하지 않습니다.` };
         }
         activeAuthPinRef.current = enteredPin;
+        lastActivityAtRef.current = Date.now();
+        lastServerHeartbeatAtRef.current = Date.now();
+        inactivityWarningShownRef.current = false;
+        isAutoLoggingOutRef.current = false;
         setAuthRole(role);
         setIsParentMode(false);
         setActiveChild(role);
@@ -1105,6 +1333,10 @@ export default function App() {
         }
 
         activeAuthPinRef.current = enteredPin;
+        lastActivityAtRef.current = Date.now();
+        lastServerHeartbeatAtRef.current = Date.now();
+        inactivityWarningShownRef.current = false;
+        isAutoLoggingOutRef.current = false;
         setAuthRole(role);
         setIsParentMode(false);
         setActiveChild(role);
@@ -1125,15 +1357,21 @@ export default function App() {
       if (enteredPin !== savedParentPin) {
         return { ok: false, error: '부모님 비밀번호가 일치하지 않습니다.' };
       }
+      const loginNow = Date.now();
       const localSession: ParentSessionInfo = {
         sessionId: createParentSessionId(),
-        loggedInAt: Date.now(),
+        loggedInAt: loginNow,
+        lastActiveAt: loginNow,
         deviceLabel: detectDeviceLabel()
       };
       myParentSessionIdRef.current = localSession.sessionId;
       mySessionLoggedInAtRef.current = localSession.loggedInAt;
       activeAuthPinRef.current = enteredPin;
       isParentModeRef.current = true;
+      lastActivityAtRef.current = loginNow;
+      lastServerHeartbeatAtRef.current = loginNow;
+      inactivityWarningShownRef.current = false;
+      isAutoLoggingOutRef.current = false;
       setActiveParentSession(localSession);
       setIsParentMode(true);
       setAuthRole('parent');
@@ -1162,15 +1400,21 @@ export default function App() {
         if (enteredPin !== savedParentPin) {
           return { ok: false, error: '부모님 비밀번호가 일치하지 않습니다.' };
         }
+        const loginNow = Date.now();
         const localSession: ParentSessionInfo = {
           sessionId: createParentSessionId(),
-          loggedInAt: Date.now(),
+          loggedInAt: loginNow,
+          lastActiveAt: loginNow,
           deviceLabel: detectDeviceLabel()
         };
         myParentSessionIdRef.current = localSession.sessionId;
         mySessionLoggedInAtRef.current = localSession.loggedInAt;
         activeAuthPinRef.current = enteredPin;
         isParentModeRef.current = true;
+        lastActivityAtRef.current = loginNow;
+        lastServerHeartbeatAtRef.current = loginNow;
+        inactivityWarningShownRef.current = false;
+        isAutoLoggingOutRef.current = false;
         setActiveParentSession(localSession);
         setIsParentMode(true);
         setAuthRole('parent');
@@ -1236,9 +1480,11 @@ export default function App() {
       );
 
       const hadOtherSession = Boolean(remoteState?.activeParentSession?.sessionId);
+      const loginNow = Date.now();
       const newSession: ParentSessionInfo = {
         sessionId: createParentSessionId(),
-        loggedInAt: Date.now(),
+        loggedInAt: loginNow,
+        lastActiveAt: loginNow,
         deviceLabel: detectDeviceLabel()
       };
       const syncTimers = buildSyncTimersPayload(freshTimers);
@@ -1270,6 +1516,10 @@ export default function App() {
       mySessionLoggedInAtRef.current = newSession.loggedInAt;
       activeAuthPinRef.current = effectivePin;
       isParentModeRef.current = true;
+      lastActivityAtRef.current = loginNow;
+      lastServerHeartbeatAtRef.current = loginNow;
+      inactivityWarningShownRef.current = false;
+      isAutoLoggingOutRef.current = false;
       lastCloudSignatureRef.current = buildSyncSignature(
         freshChildren,
         effectivePin,
@@ -1824,6 +2074,10 @@ export default function App() {
 
           if (res.sessionReplaced) {
             forceLogoutDueToOtherDevice();
+            return;
+          }
+          if (res.sessionExpired) {
+            performInactivityLogoutRef.current?.(null, { skipServerRelease: true });
             return;
           }
 

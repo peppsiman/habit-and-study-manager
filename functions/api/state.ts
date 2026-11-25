@@ -31,6 +31,7 @@ interface EventContext<E> {
 type PagesFunction<E = unknown> = (context: EventContext<E>) => Response | Promise<Response>;
 
 const STATE_KEY = 'kids_edu_app_state_v3';
+const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
 const BASE_HEADERS: Record<string, string> = {
   'Content-Type': 'application/json; charset=utf-8',
@@ -80,6 +81,58 @@ function extractSessionId(stateObj: Record<string, unknown> | null): string | nu
   return typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : null;
 }
 
+function isParentSessionExpired(session: unknown, now = Date.now()): boolean {
+  if (!session || typeof session !== 'object') return true;
+  const s = session as Record<string, unknown>;
+  const lastActive =
+    typeof s.lastActiveAt === 'number' && Number.isFinite(s.lastActiveAt) && s.lastActiveAt > 0
+      ? s.lastActiveAt
+      : typeof s.loggedInAt === 'number' && Number.isFinite(s.loggedInAt) && s.loggedInAt > 0
+      ? s.loggedInAt
+      : 0;
+  if (!lastActive) return true;
+  return now - lastActive >= SESSION_IDLE_TIMEOUT_MS;
+}
+
+function sanitizeExpiredSessionForRead(
+  stored: Record<string, unknown> | null,
+  now = Date.now()
+): { state: Record<string, unknown> | null; expiredSessionId: string | null } {
+  if (!stored || typeof stored !== 'object') {
+    return { state: stored, expiredSessionId: null };
+  }
+  const existingSessionId = extractSessionId(stored);
+  if (existingSessionId && isParentSessionExpired(stored.activeParentSession, now)) {
+    return {
+      state: { ...stored, activeParentSession: null },
+      expiredSessionId: existingSessionId
+    };
+  }
+  return { state: stored, expiredSessionId: null };
+}
+
+async function persistState(
+  kv: KVNamespace | undefined,
+  db: D1Database | undefined,
+  stateObj: Record<string, unknown>,
+  updatedAt: number
+): Promise<void> {
+  const serialized = JSON.stringify(stateObj);
+  if (kv) {
+    await kv.put(STATE_KEY, serialized);
+    return;
+  }
+  if (db) {
+    await ensureD1Table(db);
+    await db
+      .prepare(
+        'INSERT INTO app_state (id, payload, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at'
+      )
+      .bind(STATE_KEY, serialized, updatedAt)
+      .run();
+  }
+}
+
 export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
   const method = request.method.toUpperCase();
 
@@ -109,30 +162,146 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
 
   try {
     if (method === 'GET') {
-      if (kv) {
-        const stored = await kv.get(STATE_KEY, 'json');
-        return jsonResponse({
-          ok: true,
-          configured: true,
-          storageType: 'kv',
-          state: stored || null
-        });
-      }
-
-      if (db) {
-        const parsed = await readExistingD1State(db);
-        return jsonResponse({
-          ok: true,
-          configured: true,
-          storageType: 'd1',
-          state: parsed
-        });
-      }
+      const stored = kv
+        ? await kv.get<Record<string, unknown>>(STATE_KEY, 'json')
+        : db
+        ? await readExistingD1State(db)
+        : null;
+      const { state, expiredSessionId } = sanitizeExpiredSessionForRead(stored, Date.now());
+      return jsonResponse({
+        ok: true,
+        configured: true,
+        storageType,
+        state: state || null,
+        ...(expiredSessionId ? { expiredSessionId } : {})
+      });
     }
 
     if (method === 'PUT' || method === 'POST') {
       const body = (await request.json().catch(() => null)) as Record<string, unknown> | null;
-      if (!body || typeof body !== 'object' || !body.childrenData || typeof body.childrenData !== 'object') {
+      if (!body || typeof body !== 'object') {
+        return jsonResponse(
+          {
+            ok: false,
+            configured: true,
+            storageType,
+            state: null,
+            error: 'Invalid JSON body.'
+          },
+          400
+        );
+      }
+
+      const clientSessionId =
+        typeof body.clientSessionId === 'string' && body.clientSessionId.trim()
+          ? body.clientSessionId.trim()
+          : null;
+      const claimSession = body.claimSession === true;
+      const releaseSession = body.releaseSession === true;
+      const heartbeatSession = body.heartbeatSession === true;
+
+      const existing = kv
+        ? await kv.get<Record<string, unknown>>(STATE_KEY, 'json')
+        : db
+        ? await readExistingD1State(db)
+        : null;
+      const existingSessionId = extractSessionId(existing);
+
+      if (heartbeatSession) {
+        if (!clientSessionId) {
+          return jsonResponse(
+            {
+              ok: false,
+              configured: true,
+              storageType,
+              state: null,
+              error: 'clientSessionId is required for heartbeat.'
+            },
+            400
+          );
+        }
+
+        const now = Date.now();
+        if (!existing || !existingSessionId) {
+          return jsonResponse(
+            {
+              ok: false,
+              configured: true,
+              storageType,
+              sessionExpired: true,
+              state: existing,
+              error: 'Active parent session has ended.'
+            },
+            409
+          );
+        }
+
+        const existingExpired = isParentSessionExpired(existing.activeParentSession, now);
+        if (existingSessionId !== clientSessionId) {
+          if (existingExpired) {
+            return jsonResponse(
+              {
+                ok: false,
+                configured: true,
+                storageType,
+                sessionExpired: true,
+                state: { ...existing, activeParentSession: null },
+                error: 'Active parent session expired due to inactivity.'
+              },
+              409
+            );
+          }
+          return jsonResponse(
+            {
+              ok: false,
+              configured: true,
+              storageType,
+              sessionReplaced: true,
+              state: existing,
+              error: 'Active parent session belongs to another device.'
+            },
+            409
+          );
+        }
+
+        const existingUpdatedAt =
+          typeof existing.updatedAt === 'number' && Number.isFinite(existing.updatedAt)
+            ? existing.updatedAt
+            : now;
+
+        if (existingExpired) {
+          const clearedExisting = { ...existing, activeParentSession: null };
+          await persistState(kv, db, clearedExisting, existingUpdatedAt);
+          return jsonResponse(
+            {
+              ok: false,
+              configured: true,
+              storageType,
+              sessionExpired: true,
+              state: clearedExisting,
+              error: 'Active parent session expired due to inactivity.'
+            },
+            409
+          );
+        }
+
+        const updatedExisting = {
+          ...existing,
+          activeParentSession: {
+            ...(existing.activeParentSession as Record<string, unknown>),
+            lastActiveAt: now
+          }
+        };
+        await persistState(kv, db, updatedExisting, existingUpdatedAt);
+        return jsonResponse({
+          ok: true,
+          configured: true,
+          storageType,
+          state: updatedExisting
+        });
+      }
+
+      if (!body.childrenData || typeof body.childrenData !== 'object') {
         return jsonResponse(
           {
             ok: false,
@@ -145,17 +314,11 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
         );
       }
 
-      const clientSessionId =
-        typeof body.clientSessionId === 'string' && body.clientSessionId.trim()
-          ? body.clientSessionId.trim()
-          : null;
-      const claimSession = body.claimSession === true;
-      const releaseSession = body.releaseSession === true;
-
       const {
         clientSessionId: _omitClientSessionId,
         claimSession: _omitClaimSession,
         releaseSession: _omitReleaseSession,
+        heartbeatSession: _omitHeartbeatSession,
         ...cleanBody
       } = body;
 
@@ -170,12 +333,10 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
         updatedAt
       };
 
-      const existing = kv
-        ? await kv.get<Record<string, unknown>>(STATE_KEY, 'json')
-        : db
-        ? await readExistingD1State(db)
-        : null;
-      const existingSessionId = extractSessionId(existing);
+      const serverNow = Date.now();
+      const existingExpired = existingSessionId
+        ? isParentSessionExpired(existing?.activeParentSession, serverNow)
+        : false;
 
       if (claimSession) {
         const claimedSessionId = extractSessionId(payload);
@@ -191,8 +352,12 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
             400
           );
         }
+        payload.activeParentSession = {
+          ...(payload.activeParentSession as Record<string, unknown>),
+          lastActiveAt: serverNow
+        };
       } else if (releaseSession) {
-        if (existingSessionId && clientSessionId !== existingSessionId) {
+        if (existingSessionId && clientSessionId !== existingSessionId && !existingExpired) {
           return jsonResponse(
             {
               ok: false,
@@ -205,9 +370,60 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
             409
           );
         }
+        if (
+          existing !== null &&
+          (!existingSessionId || (clientSessionId !== existingSessionId && existingExpired))
+        ) {
+          if (existingSessionId && existingExpired) {
+            const clearedExisting = { ...existing, activeParentSession: null };
+            const existingUpdatedAt =
+              typeof existing.updatedAt === 'number' && Number.isFinite(existing.updatedAt)
+                ? existing.updatedAt
+                : serverNow;
+            await persistState(kv, db, clearedExisting, existingUpdatedAt);
+            return jsonResponse({
+              ok: true,
+              configured: true,
+              storageType,
+              state: clearedExisting
+            });
+          }
+          return jsonResponse({
+            ok: true,
+            configured: true,
+            storageType,
+            state: { ...existing, activeParentSession: null }
+          });
+        }
         payload.activeParentSession = null;
       } else if (existing !== null) {
-        if (!existingSessionId || !clientSessionId || clientSessionId !== existingSessionId) {
+        if (!existingSessionId) {
+          return jsonResponse(
+            {
+              ok: false,
+              configured: true,
+              storageType,
+              sessionExpired: true,
+              state: existing,
+              error: 'Active parent session has ended.'
+            },
+            409
+          );
+        }
+        if (!clientSessionId || clientSessionId !== existingSessionId) {
+          if (existingExpired) {
+            return jsonResponse(
+              {
+                ok: false,
+                configured: true,
+                storageType,
+                sessionExpired: true,
+                state: { ...existing, activeParentSession: null },
+                error: 'Active parent session expired due to inactivity.'
+              },
+              409
+            );
+          }
           return jsonResponse(
             {
               ok: false,
@@ -220,36 +436,42 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
             409
           );
         }
+        if (existingExpired) {
+          const clearedExisting = { ...existing, activeParentSession: null };
+          const existingUpdatedAt =
+            typeof existing.updatedAt === 'number' && Number.isFinite(existing.updatedAt)
+              ? existing.updatedAt
+              : serverNow;
+          await persistState(kv, db, clearedExisting, existingUpdatedAt);
+          return jsonResponse(
+            {
+              ok: false,
+              configured: true,
+              storageType,
+              sessionExpired: true,
+              state: clearedExisting,
+              error: 'Active parent session expired due to inactivity.'
+            },
+            409
+          );
+        }
+        payload.activeParentSession = {
+          ...(existing.activeParentSession as Record<string, unknown>),
+          ...(payload.activeParentSession && typeof payload.activeParentSession === 'object'
+            ? (payload.activeParentSession as Record<string, unknown>)
+            : {}),
+          sessionId: existingSessionId,
+          lastActiveAt: serverNow
+        };
       }
 
-      const serialized = JSON.stringify(payload);
-
-      if (kv) {
-        await kv.put(STATE_KEY, serialized);
-        return jsonResponse({
-          ok: true,
-          configured: true,
-          storageType: 'kv',
-          state: payload
-        });
-      }
-
-      if (db) {
-        await ensureD1Table(db);
-        await db
-          .prepare(
-            'INSERT INTO app_state (id, payload, updated_at) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET payload = excluded.payload, updated_at = excluded.updated_at'
-          )
-          .bind(STATE_KEY, serialized, updatedAt)
-          .run();
-
-        return jsonResponse({
-          ok: true,
-          configured: true,
-          storageType: 'd1',
-          state: payload
-        });
-      }
+      await persistState(kv, db, payload, updatedAt);
+      return jsonResponse({
+        ok: true,
+        configured: true,
+        storageType,
+        state: payload
+      });
     }
 
     return jsonResponse(

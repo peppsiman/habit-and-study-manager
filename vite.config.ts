@@ -8,6 +8,45 @@ import {defineConfig} from 'vite';
 const LOCAL_STATE_FILE = path.resolve(__dirname, '.wrangler', 'local-kv-state.json');
 const LOCAL_AUDIO_DIR = path.resolve(__dirname, '.wrangler', 'audio');
 const VALID_AUDIO_DAYS = new Set(['MON', 'TUE', 'WED', 'THU', 'FRI']);
+const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+
+function extractSessionId(stateObj: Record<string, unknown> | null): string | null {
+  if (!stateObj || typeof stateObj !== 'object') return null;
+  const session = stateObj.activeParentSession;
+  if (!session || typeof session !== 'object') return null;
+  const sessionId = (session as Record<string, unknown>).sessionId;
+  return typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : null;
+}
+
+function isParentSessionExpired(session: unknown, now = Date.now()): boolean {
+  if (!session || typeof session !== 'object') return true;
+  const s = session as Record<string, unknown>;
+  const lastActive =
+    typeof s.lastActiveAt === 'number' && Number.isFinite(s.lastActiveAt) && s.lastActiveAt > 0
+      ? s.lastActiveAt
+      : typeof s.loggedInAt === 'number' && Number.isFinite(s.loggedInAt) && s.loggedInAt > 0
+      ? s.loggedInAt
+      : 0;
+  if (!lastActive) return true;
+  return now - lastActive >= SESSION_IDLE_TIMEOUT_MS;
+}
+
+function sanitizeExpiredSessionForRead(
+  stored: Record<string, unknown> | null,
+  now = Date.now()
+): { state: Record<string, unknown> | null; expiredSessionId: string | null } {
+  if (!stored || typeof stored !== 'object') {
+    return { state: stored, expiredSessionId: null };
+  }
+  const existingSessionId = extractSessionId(stored);
+  if (existingSessionId && isParentSessionExpired(stored.activeParentSession, now)) {
+    return {
+      state: { ...stored, activeParentSession: null },
+      expiredSessionId: existingSessionId
+    };
+  }
+  return { state: stored, expiredSessionId: null };
+}
 
 function readRequestBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -43,16 +82,21 @@ function localCloudStateMiddleware(req: IncomingMessage, res: ServerResponse, ne
 
   if (method === 'GET') {
     try {
-      let state: unknown = null;
+      let stored: Record<string, unknown> | null = null;
       if (fs.existsSync(LOCAL_STATE_FILE)) {
         const raw = fs.readFileSync(LOCAL_STATE_FILE, 'utf8');
-        state = raw.trim() ? JSON.parse(raw) : null;
+        const parsed = raw.trim() ? JSON.parse(raw) : null;
+        if (parsed && typeof parsed === 'object') {
+          stored = parsed as Record<string, unknown>;
+        }
       }
+      const { state, expiredSessionId } = sanitizeExpiredSessionForRead(stored, Date.now());
       sendJson(res, 200, {
         ok: true,
         configured: true,
         storageType: 'local-file',
-        state,
+        state: state || null,
+        ...(expiredSessionId ? { expiredSessionId } : {}),
       });
     } catch (err) {
       sendJson(res, 500, {
@@ -70,13 +114,13 @@ function localCloudStateMiddleware(req: IncomingMessage, res: ServerResponse, ne
     readRequestBody(req)
       .then((raw) => {
         const body = JSON.parse(raw) as Record<string, unknown>;
-        if (!body || typeof body !== 'object' || !body.childrenData || typeof body.childrenData !== 'object') {
+        if (!body || typeof body !== 'object') {
           sendJson(res, 400, {
             ok: false,
             configured: true,
             storageType: 'local-file',
             state: null,
-            error: 'Invalid payload: childrenData is required.',
+            error: 'Invalid JSON body.',
           });
           return;
         }
@@ -87,21 +131,7 @@ function localCloudStateMiddleware(req: IncomingMessage, res: ServerResponse, ne
             : null;
         const claimSession = body.claimSession === true;
         const releaseSession = body.releaseSession === true;
-
-        const {
-          clientSessionId: _omitClientSessionId,
-          claimSession: _omitClaimSession,
-          releaseSession: _omitReleaseSession,
-          ...cleanBody
-        } = body;
-
-        const extractSessionId = (stateObj: Record<string, unknown> | null): string | null => {
-          if (!stateObj || typeof stateObj !== 'object') return null;
-          const session = stateObj.activeParentSession;
-          if (!session || typeof session !== 'object') return null;
-          const sessionId = (session as Record<string, unknown>).sessionId;
-          return typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : null;
-        };
+        const heartbeatSession = body.heartbeatSession === true;
 
         let existing: Record<string, unknown> | null = null;
         if (fs.existsSync(LOCAL_STATE_FILE)) {
@@ -113,6 +143,110 @@ function localCloudStateMiddleware(req: IncomingMessage, res: ServerResponse, ne
         }
         const existingSessionId = extractSessionId(existing);
 
+        const writeLocalState = (stateObj: Record<string, unknown>) => {
+          fs.mkdirSync(path.dirname(LOCAL_STATE_FILE), {recursive: true});
+          fs.writeFileSync(LOCAL_STATE_FILE, JSON.stringify(stateObj, null, 2), 'utf8');
+        };
+
+        if (heartbeatSession) {
+          if (!clientSessionId) {
+            sendJson(res, 400, {
+              ok: false,
+              configured: true,
+              storageType: 'local-file',
+              state: null,
+              error: 'clientSessionId is required for heartbeat.',
+            });
+            return;
+          }
+
+          const now = Date.now();
+          if (!existing || !existingSessionId) {
+            sendJson(res, 409, {
+              ok: false,
+              configured: true,
+              storageType: 'local-file',
+              sessionExpired: true,
+              state: existing,
+              error: 'Active parent session has ended.',
+            });
+            return;
+          }
+
+          const existingExpired = isParentSessionExpired(existing.activeParentSession, now);
+          if (existingSessionId !== clientSessionId) {
+            if (existingExpired) {
+              sendJson(res, 409, {
+                ok: false,
+                configured: true,
+                storageType: 'local-file',
+                sessionExpired: true,
+                state: { ...existing, activeParentSession: null },
+                error: 'Active parent session expired due to inactivity.',
+              });
+              return;
+            }
+            sendJson(res, 409, {
+              ok: false,
+              configured: true,
+              storageType: 'local-file',
+              sessionReplaced: true,
+              state: existing,
+              error: 'Active parent session belongs to another device.',
+            });
+            return;
+          }
+
+          if (existingExpired) {
+            const clearedExisting = { ...existing, activeParentSession: null };
+            writeLocalState(clearedExisting);
+            sendJson(res, 409, {
+              ok: false,
+              configured: true,
+              storageType: 'local-file',
+              sessionExpired: true,
+              state: clearedExisting,
+              error: 'Active parent session expired due to inactivity.',
+            });
+            return;
+          }
+
+          const updatedExisting = {
+            ...existing,
+            activeParentSession: {
+              ...(existing.activeParentSession as Record<string, unknown>),
+              lastActiveAt: now,
+            },
+          };
+          writeLocalState(updatedExisting);
+          sendJson(res, 200, {
+            ok: true,
+            configured: true,
+            storageType: 'local-file',
+            state: updatedExisting,
+          });
+          return;
+        }
+
+        if (!body.childrenData || typeof body.childrenData !== 'object') {
+          sendJson(res, 400, {
+            ok: false,
+            configured: true,
+            storageType: 'local-file',
+            state: null,
+            error: 'Invalid payload: childrenData is required.',
+          });
+          return;
+        }
+
+        const {
+          clientSessionId: _omitClientSessionId,
+          claimSession: _omitClaimSession,
+          releaseSession: _omitReleaseSession,
+          heartbeatSession: _omitHeartbeatSession,
+          ...cleanBody
+        } = body;
+
         const payload: Record<string, unknown> = {
           ...cleanBody,
           version: typeof cleanBody.version === 'number' ? cleanBody.version : 3,
@@ -121,6 +255,11 @@ function localCloudStateMiddleware(req: IncomingMessage, res: ServerResponse, ne
               ? cleanBody.updatedAt
               : Date.now(),
         };
+
+        const serverNow = Date.now();
+        const existingExpired = existingSessionId
+          ? isParentSessionExpired(existing?.activeParentSession, serverNow)
+          : false;
 
         if (claimSession) {
           if (!extractSessionId(payload)) {
@@ -133,8 +272,12 @@ function localCloudStateMiddleware(req: IncomingMessage, res: ServerResponse, ne
             });
             return;
           }
+          payload.activeParentSession = {
+            ...(payload.activeParentSession as Record<string, unknown>),
+            lastActiveAt: serverNow,
+          };
         } else if (releaseSession) {
-          if (existingSessionId && clientSessionId !== existingSessionId) {
+          if (existingSessionId && clientSessionId !== existingSessionId && !existingExpired) {
             sendJson(res, 409, {
               ok: false,
               configured: true,
@@ -145,9 +288,54 @@ function localCloudStateMiddleware(req: IncomingMessage, res: ServerResponse, ne
             });
             return;
           }
+          if (
+            existing !== null &&
+            (!existingSessionId || (clientSessionId !== existingSessionId && existingExpired))
+          ) {
+            if (existingSessionId && existingExpired) {
+              const clearedExisting = { ...existing, activeParentSession: null };
+              writeLocalState(clearedExisting);
+              sendJson(res, 200, {
+                ok: true,
+                configured: true,
+                storageType: 'local-file',
+                state: clearedExisting,
+              });
+              return;
+            }
+            sendJson(res, 200, {
+              ok: true,
+              configured: true,
+              storageType: 'local-file',
+              state: { ...existing, activeParentSession: null },
+            });
+            return;
+          }
           payload.activeParentSession = null;
         } else if (existing !== null) {
-          if (!existingSessionId || !clientSessionId || clientSessionId !== existingSessionId) {
+          if (!existingSessionId) {
+            sendJson(res, 409, {
+              ok: false,
+              configured: true,
+              storageType: 'local-file',
+              sessionExpired: true,
+              state: existing,
+              error: 'Active parent session has ended.',
+            });
+            return;
+          }
+          if (!clientSessionId || clientSessionId !== existingSessionId) {
+            if (existingExpired) {
+              sendJson(res, 409, {
+                ok: false,
+                configured: true,
+                storageType: 'local-file',
+                sessionExpired: true,
+                state: { ...existing, activeParentSession: null },
+                error: 'Active parent session expired due to inactivity.',
+              });
+              return;
+            }
             sendJson(res, 409, {
               ok: false,
               configured: true,
@@ -158,10 +346,30 @@ function localCloudStateMiddleware(req: IncomingMessage, res: ServerResponse, ne
             });
             return;
           }
+          if (existingExpired) {
+            const clearedExisting = { ...existing, activeParentSession: null };
+            writeLocalState(clearedExisting);
+            sendJson(res, 409, {
+              ok: false,
+              configured: true,
+              storageType: 'local-file',
+              sessionExpired: true,
+              state: clearedExisting,
+              error: 'Active parent session expired due to inactivity.',
+            });
+            return;
+          }
+          payload.activeParentSession = {
+            ...(existing.activeParentSession as Record<string, unknown>),
+            ...(payload.activeParentSession && typeof payload.activeParentSession === 'object'
+              ? (payload.activeParentSession as Record<string, unknown>)
+              : {}),
+            sessionId: existingSessionId,
+            lastActiveAt: serverNow,
+          };
         }
 
-        fs.mkdirSync(path.dirname(LOCAL_STATE_FILE), {recursive: true});
-        fs.writeFileSync(LOCAL_STATE_FILE, JSON.stringify(payload, null, 2), 'utf8');
+        writeLocalState(payload);
         sendJson(res, 200, {
           ok: true,
           configured: true,
@@ -287,6 +495,10 @@ function localCloudAudioMiddleware(req: IncomingMessage, res: ServerResponse, ne
 
         if (authRole === 'parent') {
           if (existingSessionId) {
+            if (isParentSessionExpired(existing?.activeParentSession, Date.now())) {
+              sendJson(res, 403, { ok: false, configured: true, storageType: 'local-file', sessionExpired: true, error: 'Active parent session expired due to inactivity.' });
+              return;
+            }
             if (!clientSessionId || clientSessionId !== existingSessionId) {
               sendJson(res, 403, { ok: false, configured: true, storageType: 'local-file', sessionReplaced: true, error: 'Active parent session belongs to another device.' });
               return;
@@ -354,7 +566,23 @@ function localCloudAudioMiddleware(req: IncomingMessage, res: ServerResponse, ne
               ? existing.updatedAt
               : 0;
           nextUpdatedAt = Math.max(recordedAt, prevUpdated + 1);
-          const updatedState = { ...existing, updatedAt: nextUpdatedAt, childrenData };
+          const nextParentSession =
+            authRole === 'parent' &&
+            existingSessionId &&
+            clientSessionId === existingSessionId &&
+            existing?.activeParentSession &&
+            typeof existing.activeParentSession === 'object'
+              ? {
+                  ...(existing.activeParentSession as Record<string, unknown>),
+                  lastActiveAt: recordedAt,
+                }
+              : existing.activeParentSession;
+          const updatedState = {
+            ...existing,
+            ...(nextParentSession !== undefined ? { activeParentSession: nextParentSession } : {}),
+            updatedAt: nextUpdatedAt,
+            childrenData,
+          };
           fs.mkdirSync(path.dirname(LOCAL_STATE_FILE), {recursive: true});
           fs.writeFileSync(LOCAL_STATE_FILE, JSON.stringify(updatedState, null, 2), 'utf8');
         }

@@ -468,6 +468,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                 <ul className="space-y-1.5 list-disc list-inside">
                   <li>변경한 비밀번호는 클라우드에 즉시 저장되어 모든 기기에서 적용됩니다.</li>
                   <li>채점이나 시간 차감을 마친 뒤에는 상단의 로그아웃 버튼으로 잠금하세요.</li>
+                  <li>30분 동안 동작이 없으면 보안을 위해 자동 로그아웃됩니다. (유튜브 타이머 실행·알림 및 음성 녹음 중에는 유지)</li>
                 </ul>
               </div>
             </div>

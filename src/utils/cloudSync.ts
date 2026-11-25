@@ -206,3 +206,39 @@ export async function saveCloudState(
 
   return data;
 }
+
+export async function sendParentSessionHeartbeat(
+  clientSessionId: string
+): Promise<CloudStateApiResponse> {
+  const response = await fetch('/api/state', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      clientSessionId,
+      heartbeatSession: true
+    }),
+    cache: 'no-store'
+  });
+
+  const contentType = response.headers.get('content-type') || '';
+  if (!contentType.includes('application/json')) {
+    return {
+      ok: false,
+      configured: false,
+      storageType: 'none',
+      state: null,
+      error: `Unexpected content-type (${response.status})`
+    };
+  }
+
+  const data = (await response.json()) as CloudStateApiResponse;
+  if (!response.ok && !data.error) {
+    return {
+      ...data,
+      ok: false,
+      error: `HTTP ${response.status}`
+    };
+  }
+
+  return data;
+}

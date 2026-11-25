@@ -5,6 +5,10 @@ export const STORAGE_KEY_TIMERS = 'suhyun_dahyun_timers_v3';
 export const STORAGE_KEY_PIN = 'suhyun_dahyun_pin_v3';
 export const STORAGE_KEY_CHILD_PINS = 'suhyun_dahyun_child_pins_v4';
 
+export const INACTIVITY_TIMEOUT_MS = 30 * 60 * 1000;
+export const INACTIVITY_WARNING_MS = 29 * 60 * 1000;
+export const SESSION_HEARTBEAT_INTERVAL_MS = 5 * 60 * 1000;
+
 export const DEFAULT_CHILD_PINS: Record<ChildKey, string> = {
   suhyun: '8864',
   dahyun: '7749'

@@ -127,6 +127,7 @@ export type CloudStorageType = 'kv' | 'd1' | 'local-file' | 'none';
 export interface ParentSessionInfo {
   sessionId: string;
   loggedInAt: number;
+  lastActiveAt?: number;
   deviceLabel?: string;
 }
 
@@ -134,6 +135,7 @@ export interface SaveCloudStateOptions {
   clientSessionId?: string | null;
   claimSession?: boolean;
   releaseSession?: boolean;
+  heartbeatSession?: boolean;
 }
 
 export interface CloudAppState {
@@ -154,6 +156,8 @@ export interface CloudStateApiResponse {
   storageType: CloudStorageType;
   state: CloudAppState | null;
   sessionReplaced?: boolean;
+  sessionExpired?: boolean;
+  expiredSessionId?: string | null;
   error?: string;
 }
 

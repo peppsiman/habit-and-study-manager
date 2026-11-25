@@ -33,6 +33,7 @@ type PagesFunction<E = unknown> = (context: EventContext<E>) => Response | Promi
 const STATE_KEY = 'kids_edu_app_state_v3';
 const AUDIO_KEY_PREFIX = 'kids_edu_audio:';
 const VALID_DAYS = new Set(['MON', 'TUE', 'WED', 'THU', 'FRI']);
+const SESSION_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
 
 const BASE_HEADERS: Record<string, string> = {
   'Content-Type': 'application/json; charset=utf-8',
@@ -73,6 +74,19 @@ function extractSessionId(stateObj: Record<string, unknown> | null): string | nu
   if (!session || typeof session !== 'object') return null;
   const sessionId = (session as Record<string, unknown>).sessionId;
   return typeof sessionId === 'string' && sessionId.trim() ? sessionId.trim() : null;
+}
+
+function isParentSessionExpired(session: unknown, now = Date.now()): boolean {
+  if (!session || typeof session !== 'object') return true;
+  const s = session as Record<string, unknown>;
+  const lastActive =
+    typeof s.lastActiveAt === 'number' && Number.isFinite(s.lastActiveAt) && s.lastActiveAt > 0
+      ? s.lastActiveAt
+      : typeof s.loggedInAt === 'number' && Number.isFinite(s.loggedInAt) && s.loggedInAt > 0
+      ? s.loggedInAt
+      : 0;
+  if (!lastActive) return true;
+  return now - lastActive >= SESSION_IDLE_TIMEOUT_MS;
 }
 
 function isValidAudioId(id: string): boolean {
@@ -217,6 +231,18 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
 
       if (authRole === 'parent') {
         if (existingSessionId) {
+          if (isParentSessionExpired(existing?.activeParentSession, Date.now())) {
+            return jsonResponse(
+              {
+                ok: false,
+                configured: true,
+                storageType,
+                sessionExpired: true,
+                error: 'Active parent session expired due to inactivity.'
+              },
+              403
+            );
+          }
           if (!clientSessionId || clientSessionId !== existingSessionId) {
             return jsonResponse(
               {
@@ -320,8 +346,21 @@ export const onRequest: PagesFunction<Env> = async ({ request, env }) => {
             : 0;
         nextUpdatedAt = Math.max(recordedAt, prevUpdated + 1);
 
+        const nextParentSession =
+          authRole === 'parent' &&
+          existingSessionId &&
+          clientSessionId === existingSessionId &&
+          existing?.activeParentSession &&
+          typeof existing.activeParentSession === 'object'
+            ? {
+                ...(existing.activeParentSession as Record<string, unknown>),
+                lastActiveAt: recordedAt
+              }
+            : existing.activeParentSession;
+
         const updatedState = {
           ...existing,
+          ...(nextParentSession !== undefined ? { activeParentSession: nextParentSession } : {}),
           updatedAt: nextUpdatedAt,
           childrenData
         };

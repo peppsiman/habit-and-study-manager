@@ -100,6 +100,7 @@ export async function uploadReadingAudio(params: {
   ok: boolean;
   configured: boolean;
   sessionReplaced?: boolean;
+  sessionExpired?: boolean;
   recording?: ReadingRecordingMeta;
   updatedAt?: number;
   error?: string;
@@ -138,6 +139,7 @@ export async function uploadReadingAudio(params: {
     ok: boolean;
     configured: boolean;
     sessionReplaced?: boolean;
+    sessionExpired?: boolean;
     recording?: ReadingRecordingMeta;
     updatedAt?: number;
     error?: string;
