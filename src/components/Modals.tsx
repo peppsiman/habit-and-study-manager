@@ -1,13 +1,31 @@
 import React from 'react';
-import { BellRing, CheckCircle2, KeyRound, Lock, Volume2, VolumeX, X } from 'lucide-react';
-import { CLOTHES_SUB_ITEMS } from '../constants';
-import { ChildConfig, ChildData, ChildKey, ConfirmDialogState, DayKey } from '../types';
+import {
+  ArrowRight,
+  BellRing,
+  CheckCircle2,
+  KeyRound,
+  Lock,
+  Sparkles,
+  Volume2,
+  VolumeX,
+  X
+} from 'lucide-react';
+import { CHILDREN_CONFIG, CLOTHES_SUB_ITEMS } from '../constants';
+import {
+  ChildConfig,
+  ChildKey,
+  ConfirmDialogState,
+  DayKey,
+  DynamicScoreProposal,
+  WeeklyRecord
+} from '../types';
 import { buildTimerEndMessage } from '../utils/alarmAudio';
+import { formatWeekRangeLabel } from '../utils/weekUtils';
 
 interface ClothesModalProps {
   modalData: { dayKey: DayKey; dayLabel: string } | null;
   currentConfig: ChildConfig;
-  currentData: ChildData;
+  weekRecord: WeeklyRecord;
   isParentMode: boolean;
   onClose: () => void;
   onToggleSubItem: (dayKey: DayKey, dayLabel: string, subName: string) => void;
@@ -16,14 +34,14 @@ interface ClothesModalProps {
 export const ClothesHelperModal: React.FC<ClothesModalProps> = ({
   modalData,
   currentConfig,
-  currentData,
+  weekRecord,
   isParentMode,
   onClose,
   onToggleSubItem
 }) => {
   if (!modalData) return null;
 
-  const daySubs = currentData.clothesSubChecks?.[modalData.dayKey] || {};
+  const daySubs = weekRecord.clothesSubChecks?.[modalData.dayKey] || {};
   const completedCount = CLOTHES_SUB_ITEMS.filter((s) => Boolean(daySubs[s])).length;
   const allCompleted = completedCount === CLOTHES_SUB_ITEMS.length;
   const clothesScore =
@@ -433,6 +451,149 @@ export const TimerAlarmModal: React.FC<TimerAlarmModalProps> = ({
               </div>
             );
           })}
+        </div>
+      </div>
+    </div>
+  );
+};
+
+interface DynamicScoreProposalModalProps {
+  proposal: DynamicScoreProposal | null;
+  onApprove: () => void;
+  onReject: () => void;
+}
+
+export const DynamicScoreProposalModal: React.FC<DynamicScoreProposalModalProps> = ({
+  proposal,
+  onApprove,
+  onReject
+}) => {
+  if (!proposal || proposal.status !== 'pending') return null;
+
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-label="주간 개별 학습과목 자동 배점 변경 안내"
+      className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto"
+    >
+      <div className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl border border-slate-200 space-y-5 my-6">
+        <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">
+              <Sparkles className="w-5 h-5" />
+            </div>
+            <div>
+              <h3 className="text-base sm:text-lg font-extrabold text-slate-900">
+                새로운 주간 자동 배점 기준 안내
+              </h3>
+              <p className="text-xs text-slate-500">
+                대상 주차: <span className="font-semibold text-slate-700">{formatWeekRangeLabel(proposal.weekId)}</span> · 지난 주차까지의 누적 수행 횟수를 바탕으로 계산되었습니다.
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={onReject}
+            className="p-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
+            aria-label="닫기"
+          >
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-200/80 text-xs text-blue-900 leading-relaxed">
+          수행 횟수가 적은 과목에는 높은 배점을, 많이 수행한 과목에는 낮은 배점을 부여해 균형 잡힌 학습을 돕습니다.
+          <br />
+          <strong>공통 생활습관(옷 정리·물통·세수·독서)</strong>과 <strong>과거 주차에 이미 획득한 점수</strong>는 그대로 유지되며, 부모님이 동의하실 경우에만 새 배점이 적용됩니다.
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          {(['suhyun', 'dahyun'] as ChildKey[]).map((ck) => {
+            const cfg = CHILDREN_CONFIG[ck];
+            const childProp = proposal.children[ck];
+            const isSuhyun = ck === 'suhyun';
+
+            return (
+              <div
+                key={ck}
+                className="rounded-xl border border-slate-200 overflow-hidden bg-white"
+              >
+                <div className="px-4 py-3 bg-slate-50 border-b border-slate-200/80 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span
+                      className={`w-6 h-6 rounded-lg text-xs font-bold flex items-center justify-center text-white ${
+                        isSuhyun ? 'bg-blue-600' : 'bg-rose-600'
+                      }`}
+                    >
+                      {cfg.name.slice(0, 1)}
+                    </span>
+                    <span className="text-sm font-bold text-slate-900">
+                      {cfg.name} 개별 학습과목
+                    </span>
+                  </div>
+                  <span className="text-xs font-bold text-slate-700 tabular-nums">
+                    합계 {childProp.totalTarget}점 고정
+                  </span>
+                </div>
+
+                <div className="divide-y divide-slate-100 text-xs">
+                  {childProp.items.map((item) => {
+                    const diff = item.proposedScore - item.previousScore;
+                    return (
+                      <div
+                        key={item.itemId}
+                        className="px-4 py-2.5 flex items-center justify-between gap-2"
+                      >
+                        <div className="min-w-0">
+                          <div className="font-semibold text-slate-900">{item.name}</div>
+                          <div className="text-[11px] text-slate-400">
+                            {item.pairedLabel
+                              ? item.pairedLabel
+                              : `누적 ${item.completedCount}회 수행`}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1.5 font-mono tabular-nums shrink-0">
+                          <span className="text-slate-400">{item.previousScore}점</span>
+                          <ArrowRight className="w-3 h-3 text-slate-400" />
+                          <span
+                            className={`font-bold px-2 py-0.5 rounded-md ${
+                              diff > 0
+                                ? 'bg-emerald-50 text-emerald-700'
+                                : diff < 0
+                                ? 'bg-amber-50 text-amber-700'
+                                : 'bg-slate-100 text-slate-700'
+                            }`}
+                          >
+                            {item.proposedScore}점
+                          </span>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2 pt-2 border-t border-slate-100">
+          <button
+            type="button"
+            onClick={onReject}
+            className="px-4 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors"
+          >
+            거절 (기존 배점 유지)
+          </button>
+          <button
+            type="button"
+            onClick={onApprove}
+            className="px-5 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-bold inline-flex items-center justify-center gap-1.5 transition-colors"
+          >
+            <CheckCircle2 className="w-4 h-4" />
+            <span>동의하고 새 배점 적용</span>
+          </button>
         </div>
       </div>
     </div>

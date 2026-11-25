@@ -7,8 +7,11 @@ import {
   DayKey,
   EvaluationItem,
   PraiseSticker,
-  ScoreSummary
+  ReadingRecordingMeta,
+  ScoreSummary,
+  WeeklyRecord
 } from '../types';
+import { getWeekIdForTimestamp } from './weekUtils';
 
 export const getDefaultItemScores = (childKey: ChildKey): Record<string, number> => {
   const config = CHILDREN_CONFIG[childKey];
@@ -66,75 +69,194 @@ export const getEffectiveChildConfig = (
 export const getCellEarnedScore = (
   item: EvaluationItem,
   dayKey: DayKey,
-  childData?: ChildData
+  weekRecord?: WeeklyRecord
 ): number => {
-  const snap = childData?.earnedScores?.[item.id]?.[dayKey];
+  const snap = weekRecord?.earnedScores?.[item.id]?.[dayKey];
   if (typeof snap === 'number' && Number.isFinite(snap) && snap >= 0) {
     return snap;
   }
   return item.score;
 };
 
-export const freezeEarnedScoresForChild = (
-  childKey: ChildKey,
-  childData: ChildData
-): Record<string, Partial<Record<DayKey, number>>> => {
-  const preChangeConfig = getEffectiveChildConfig(childKey, childData);
-  const allItems = [...preChangeConfig.studyItems, ...preChangeConfig.habitItems];
-  const frozen: Record<string, Partial<Record<DayKey, number>>> = {};
-
-  allItems.forEach((item) => {
-    const itemChecks = childData.checks?.[item.id];
-    const dayMap: Partial<Record<DayKey, number>> = {};
-    DAYS.forEach(({ key }) => {
-      const status: CheckStatus = itemChecks?.[key] || 'NONE';
-      if (status !== 'NONE') {
-        dayMap[key] = getCellEarnedScore(item, key, childData);
-      }
-    });
-    if (Object.keys(dayMap).length > 0) {
-      frozen[item.id] = dayMap;
-    }
-  });
-
-  return frozen;
-};
-
-export const createInitialChildData = (childKey: ChildKey): ChildData => {
+export const createEmptyWeeklyRecord = (childKey: ChildKey, weekId: string): WeeklyRecord => {
   const config = CHILDREN_CONFIG[childKey];
   const allItems = [...config.studyItems, ...config.habitItems];
   const checks: Record<string, Record<DayKey, CheckStatus>> = {};
-  const earnedScores: Record<string, Partial<Record<DayKey, number>>> = {};
   const clothesSubChecks = {} as Record<DayKey, Record<string, boolean>>;
 
-  allItems.forEach((item, idx) => {
-    const row: Record<DayKey, CheckStatus> = {
-      MON: 'WEEKDAY',
-      TUE: idx % 4 === 0 ? 'WEEKEND' : 'WEEKDAY',
-      WED: idx % 3 === 0 ? 'NONE' : 'WEEKDAY',
-      THU: idx % 2 === 0 ? 'WEEKDAY' : 'NONE',
+  allItems.forEach((item) => {
+    checks[item.id] = {
+      MON: 'NONE',
+      TUE: 'NONE',
+      WED: 'NONE',
+      THU: 'NONE',
       FRI: 'NONE'
     };
-    checks[item.id] = row;
-
-    const earnedRow: Partial<Record<DayKey, number>> = {};
-    DAYS.forEach(({ key }) => {
-      if (row[key] !== 'NONE') {
-        earnedRow[key] = item.score;
-      }
-    });
-    if (Object.keys(earnedRow).length > 0) {
-      earnedScores[item.id] = earnedRow;
-    }
   });
 
   DAYS.forEach(({ key }) => {
-    const isCompleted = checks.hb_clothes_all?.[key] !== 'NONE';
     clothesSubChecks[key] = CLOTHES_SUB_ITEMS.reduce((acc, sub) => {
-      acc[sub] = isCompleted;
+      acc[sub] = false;
       return acc;
     }, {} as Record<string, boolean>);
   });
+
+  return {
+    weekId,
+    checks,
+    earnedScores: {},
+    readingRecordings: {},
+    clothesSubChecks,
+    usedYoutubeMinutes: 0,
+    youtubeLogs: []
+  };
+};
+
+export const getWeeklyRecord = (
+  childKey: ChildKey,
+  childData: ChildData | undefined,
+  weekId: string
+): WeeklyRecord => {
+  const existing = childData?.weeks?.[weekId];
+  if (existing) return existing;
+  return createEmptyWeeklyRecord(childKey, weekId);
+};
+
+function normalizeWeeklyRecord(
+  childKey: ChildKey,
+  weekId: string,
+  rawWeek: Partial<WeeklyRecord> | undefined,
+  itemScores: Record<string, number>
+): WeeklyRecord {
+  const empty = createEmptyWeeklyRecord(childKey, weekId);
+  if (!rawWeek || typeof rawWeek !== 'object') return empty;
+
+  const config = CHILDREN_CONFIG[childKey];
+  const allItems = [...config.studyItems, ...config.habitItems];
+  const validStatuses: CheckStatus[] = ['NONE', 'WEEKDAY', 'WEEKEND'];
+
+  const legacyReadingKey = childKey === 'suhyun' ? 'sh_reading' : 'dh_reading';
+  const rawChecks = rawWeek.checks || {};
+  const rawEarned = rawWeek.earnedScores || {};
+
+  const safeChecks: Record<string, Record<DayKey, CheckStatus>> = {};
+  const safeEarnedScores: Record<string, Partial<Record<DayKey, number>>> = {};
+
+  allItems.forEach((item) => {
+    const isReadingMigrated = item.id === 'hb_reading' && !rawChecks.hb_reading && Boolean(rawChecks[legacyReadingKey]);
+    const sourceRow = (
+      isReadingMigrated ? rawChecks[legacyReadingKey] : rawChecks[item.id]
+    ) as Partial<Record<DayKey, CheckStatus>> | undefined;
+
+    const rowChecks: Record<DayKey, CheckStatus> = {
+      MON: sourceRow?.MON && validStatuses.includes(sourceRow.MON) ? sourceRow.MON : 'NONE',
+      TUE: sourceRow?.TUE && validStatuses.includes(sourceRow.TUE) ? sourceRow.TUE : 'NONE',
+      WED: sourceRow?.WED && validStatuses.includes(sourceRow.WED) ? sourceRow.WED : 'NONE',
+      THU: sourceRow?.THU && validStatuses.includes(sourceRow.THU) ? sourceRow.THU : 'NONE',
+      FRI: sourceRow?.FRI && validStatuses.includes(sourceRow.FRI) ? sourceRow.FRI : 'NONE'
+    };
+    safeChecks[item.id] = rowChecks;
+
+    const savedEarnedRow = isReadingMigrated ? rawEarned[legacyReadingKey] : rawEarned[item.id];
+    const earnedRow: Partial<Record<DayKey, number>> = {};
+    DAYS.forEach(({ key }) => {
+      if (rowChecks[key] !== 'NONE') {
+        const rawSnap = savedEarnedRow?.[key];
+        if (typeof rawSnap === 'number' && Number.isFinite(rawSnap) && rawSnap >= 0) {
+          earnedRow[key] = isReadingMigrated ? Math.min(10, rawSnap) : rawSnap;
+        } else {
+          earnedRow[key] = itemScores[item.id] ?? item.score;
+        }
+      }
+    });
+
+    if (Object.keys(earnedRow).length > 0) {
+      safeEarnedScores[item.id] = earnedRow;
+    }
+  });
+
+  const safeClothesSubChecks = {} as Record<DayKey, Record<string, boolean>>;
+  DAYS.forEach(({ key }) => {
+    const savedDaySub = (rawWeek.clothesSubChecks?.[key] || {}) as Record<string, unknown>;
+    const isCompleted = safeChecks.hb_clothes_all?.[key] !== 'NONE';
+    safeClothesSubChecks[key] = CLOTHES_SUB_ITEMS.reduce((acc, sub) => {
+      acc[sub] = typeof savedDaySub[sub] === 'boolean' ? (savedDaySub[sub] as boolean) : isCompleted;
+      return acc;
+    }, {} as Record<string, boolean>);
+  });
+
+  const safeRecordings: Partial<Record<DayKey, ReadingRecordingMeta>> = {};
+  if (rawWeek.readingRecordings && typeof rawWeek.readingRecordings === 'object') {
+    DAYS.forEach(({ key }) => {
+      const rec = rawWeek.readingRecordings?.[key];
+      if (rec && typeof rec === 'object' && typeof rec.audioId === 'string' && rec.audioId.trim()) {
+        safeRecordings[key] = {
+          audioId: rec.audioId,
+          mimeType: typeof rec.mimeType === 'string' ? rec.mimeType : 'audio/webm',
+          durationSec:
+            typeof rec.durationSec === 'number' && Number.isFinite(rec.durationSec)
+              ? Math.max(0, Math.round(rec.durationSec))
+              : 0,
+          recordedAt:
+            typeof rec.recordedAt === 'number' && Number.isFinite(rec.recordedAt)
+              ? rec.recordedAt
+              : Date.now()
+        };
+      }
+    });
+  }
+
+  return {
+    weekId,
+    checks: safeChecks,
+    earnedScores: safeEarnedScores,
+    readingRecordings: safeRecordings,
+    clothesSubChecks: safeClothesSubChecks,
+    usedYoutubeMinutes:
+      typeof rawWeek.usedYoutubeMinutes === 'number' && !isNaN(rawWeek.usedYoutubeMinutes)
+        ? Math.max(0, rawWeek.usedYoutubeMinutes)
+        : 0,
+    youtubeLogs: Array.isArray(rawWeek.youtubeLogs) ? rawWeek.youtubeLogs : []
+  };
+}
+
+export const freezeEarnedScoresForChild = (
+  childKey: ChildKey,
+  childData: ChildData
+): Record<string, WeeklyRecord> => {
+  const preChangeConfig = getEffectiveChildConfig(childKey, childData);
+  const allItems = [...preChangeConfig.studyItems, ...preChangeConfig.habitItems];
+  const updatedWeeks: Record<string, WeeklyRecord> = {};
+
+  Object.entries(childData.weeks || {}).forEach(([wId, weekRecord]) => {
+    const frozenEarned: Record<string, Partial<Record<DayKey, number>>> = {};
+    allItems.forEach((item) => {
+      const itemChecks = weekRecord.checks?.[item.id];
+      const dayMap: Partial<Record<DayKey, number>> = {};
+      DAYS.forEach(({ key }) => {
+        const status: CheckStatus = itemChecks?.[key] || 'NONE';
+        if (status !== 'NONE') {
+          dayMap[key] = getCellEarnedScore(item, key, weekRecord);
+        }
+      });
+      if (Object.keys(dayMap).length > 0) {
+        frozenEarned[item.id] = dayMap;
+      }
+    });
+    updatedWeeks[wId] = {
+      ...weekRecord,
+      earnedScores: frozenEarned
+    };
+  });
+
+  return updatedWeeks;
+};
+
+export const createInitialChildData = (
+  childKey: ChildKey,
+  currentWeekId = getWeekIdForTimestamp()
+): ChildData => {
+  const initialWeek = createEmptyWeeklyRecord(childKey, currentWeekId);
 
   const sampleStickers: PraiseSticker[] = [
     { id: 1, giver: 'MOM', reason: '잠바·가방·태권도복까지 옷 정리 스스로 완벽히 완료!', date: '11/02' },
@@ -145,91 +267,65 @@ export const createInitialChildData = (childKey: ChildKey): ChildData => {
   ];
 
   return {
-    weekTitle: '이번 주 (월~금 정규 & 주말 보충)',
-    checks,
-    earnedScores,
+    weeks: {
+      [currentWeekId]: initialWeek
+    },
     itemScores: getDefaultItemScores(childKey),
-    clothesSubChecks,
-    usedYoutubeMinutes: 30,
-    youtubeLogs: [
-      {
-        id: 'init-log-1',
-        type: 'WATCH',
-        minutes: -30,
-        memo: '토요일 오전 유튜브 시청',
-        timestamp: '토요일 10:30'
-      }
-    ],
     stickers: sampleStickers,
     stickerRound: 1,
     rewardGoal: '상품은 검토 중...'
   };
 };
 
-export const normalizeChildData = (childKey: ChildKey, rawData: unknown): ChildData => {
-  const fallback = createInitialChildData(childKey);
+export const normalizeChildData = (
+  childKey: ChildKey,
+  rawData: unknown,
+  currentWeekId = getWeekIdForTimestamp()
+): ChildData => {
+  const fallback = createInitialChildData(childKey, currentWeekId);
   if (!rawData || typeof rawData !== 'object') return fallback;
 
   const data = rawData as Partial<ChildData>;
   const config = CHILDREN_CONFIG[childKey];
   const allItems = [...config.studyItems, ...config.habitItems];
-  const safeChecks: Record<string, Record<DayKey, CheckStatus>> = {};
+
   const safeItemScores: Record<string, number> = {};
-  const safeEarnedScores: Record<string, Partial<Record<DayKey, number>>> = {};
-
-  const validStatuses: CheckStatus[] = ['NONE', 'WEEKDAY', 'WEEKEND'];
-
   allItems.forEach((item) => {
-    const configuredScore = sanitizeItemScore(data.itemScores?.[item.id], item.score);
-    safeItemScores[item.id] = configuredScore;
+    safeItemScores[item.id] = sanitizeItemScore(data.itemScores?.[item.id], item.score);
+  });
 
-    const savedRow = (data.checks?.[item.id] || {}) as Partial<Record<DayKey, CheckStatus>>;
-    const rowChecks: Record<DayKey, CheckStatus> = {
-      MON: savedRow.MON && validStatuses.includes(savedRow.MON) ? savedRow.MON : fallback.checks[item.id].MON,
-      TUE: savedRow.TUE && validStatuses.includes(savedRow.TUE) ? savedRow.TUE : fallback.checks[item.id].TUE,
-      WED: savedRow.WED && validStatuses.includes(savedRow.WED) ? savedRow.WED : fallback.checks[item.id].WED,
-      THU: savedRow.THU && validStatuses.includes(savedRow.THU) ? savedRow.THU : fallback.checks[item.id].THU,
-      FRI: savedRow.FRI && validStatuses.includes(savedRow.FRI) ? savedRow.FRI : fallback.checks[item.id].FRI
-    };
-    safeChecks[item.id] = rowChecks;
+  const safeWeeks: Record<string, WeeklyRecord> = {};
 
-    const savedEarnedRow = data.earnedScores?.[item.id];
-    const earnedRow: Partial<Record<DayKey, number>> = {};
-    DAYS.forEach(({ key }) => {
-      if (rowChecks[key] !== 'NONE') {
-        const rawSnap = savedEarnedRow?.[key];
-        earnedRow[key] =
-          typeof rawSnap === 'number' && Number.isFinite(rawSnap) && rawSnap >= 0
-            ? rawSnap
-            : configuredScore;
+  if (data.weeks && typeof data.weeks === 'object') {
+    Object.entries(data.weeks).forEach(([wId, rawWeek]) => {
+      if (/^\d{4}-\d{2}-\d{2}$/.test(wId) && rawWeek && typeof rawWeek === 'object') {
+        safeWeeks[wId] = normalizeWeeklyRecord(childKey, wId, rawWeek, safeItemScores);
       }
     });
-    if (Object.keys(earnedRow).length > 0) {
-      safeEarnedScores[item.id] = earnedRow;
-    }
-  });
+  } else if (data.checks && typeof data.checks === 'object') {
+    // Migrate legacy v3 flat ChildData into weeks[currentWeekId]
+    safeWeeks[currentWeekId] = normalizeWeeklyRecord(
+      childKey,
+      currentWeekId,
+      {
+        weekId: currentWeekId,
+        checks: data.checks,
+        earnedScores: data.earnedScores,
+        clothesSubChecks: data.clothesSubChecks,
+        usedYoutubeMinutes: data.usedYoutubeMinutes,
+        youtubeLogs: data.youtubeLogs
+      },
+      safeItemScores
+    );
+  }
 
-  const safeClothesSubChecks = {} as Record<DayKey, Record<string, boolean>>;
-  DAYS.forEach(({ key }) => {
-    const savedDaySub = (data.clothesSubChecks?.[key] || {}) as Record<string, unknown>;
-    const isCompleted = safeChecks.hb_clothes_all?.[key] !== 'NONE';
-    safeClothesSubChecks[key] = CLOTHES_SUB_ITEMS.reduce((acc, sub) => {
-      acc[sub] = typeof savedDaySub[sub] === 'boolean' ? (savedDaySub[sub] as boolean) : isCompleted;
-      return acc;
-    }, {} as Record<string, boolean>);
-  });
+  if (!safeWeeks[currentWeekId]) {
+    safeWeeks[currentWeekId] = createEmptyWeeklyRecord(childKey, currentWeekId);
+  }
 
   return {
-    weekTitle: typeof data.weekTitle === 'string' ? data.weekTitle : fallback.weekTitle,
-    checks: safeChecks,
-    earnedScores: safeEarnedScores,
+    weeks: safeWeeks,
     itemScores: safeItemScores,
-    clothesSubChecks: safeClothesSubChecks,
-    usedYoutubeMinutes:
-      typeof data.usedYoutubeMinutes === 'number' && !isNaN(data.usedYoutubeMinutes)
-        ? Math.max(0, data.usedYoutubeMinutes)
-        : fallback.usedYoutubeMinutes,
-    youtubeLogs: Array.isArray(data.youtubeLogs) ? data.youtubeLogs : fallback.youtubeLogs,
     stickers: Array.isArray(data.stickers) ? data.stickers : fallback.stickers,
     stickerRound:
       typeof data.stickerRound === 'number' && data.stickerRound >= 1 ? data.stickerRound : 1,
@@ -245,9 +341,11 @@ export const normalizeChildData = (childKey: ChildKey, rawData: unknown): ChildD
 
 export const computeChildScoreSummary = (
   childKey: ChildKey,
-  childData: ChildData | undefined
+  childData: ChildData | undefined,
+  weekId = getWeekIdForTimestamp()
 ): ScoreSummary => {
   const config = getEffectiveChildConfig(childKey, childData);
+  const weekRecord = getWeeklyRecord(childKey, childData, weekId);
   const allItems = [...config.studyItems, ...config.habitItems];
 
   let weekdayScore = 0;
@@ -260,20 +358,22 @@ export const computeChildScoreSummary = (
   const effectiveDailyMaxScores: Record<DayKey, number> = { MON: 0, TUE: 0, WED: 0, THU: 0, FRI: 0 };
 
   allItems.forEach((item) => {
-    const itemChecks = childData?.checks?.[item.id];
+    const itemChecks = weekRecord.checks?.[item.id];
+    const isReadingAudio = item.scoringType === 'READING_AUDIO';
+
     DAYS.forEach(({ key }) => {
       const status: CheckStatus = itemChecks?.[key] || 'NONE';
       if (status === 'WEEKDAY') {
-        const pts = getCellEarnedScore(item, key, childData);
+        const pts = getCellEarnedScore(item, key, weekRecord);
         weekdayScore += pts;
         dailyScores[key] += pts;
-        effectiveDailyMaxScores[key] += pts;
+        effectiveDailyMaxScores[key] += isReadingAudio ? Math.max(item.score, pts) : pts;
       } else if (status === 'WEEKEND') {
-        const pts = getCellEarnedScore(item, key, childData);
+        const pts = getCellEarnedScore(item, key, weekRecord);
         weekendMakeupScore += pts;
         dailyScores[key] += pts;
         dailyMakeups[key] += pts;
-        effectiveDailyMaxScores[key] += pts;
+        effectiveDailyMaxScores[key] += isReadingAudio ? Math.max(item.score, pts) : pts;
       } else {
         incompletePotentialScore += item.score;
         incompleteCount += 1;
@@ -283,9 +383,12 @@ export const computeChildScoreSummary = (
   });
 
   const totalScore = weekdayScore + weekendMakeupScore;
-  const effectiveWeeklyMaxScore = totalScore + incompletePotentialScore;
+  const effectiveWeeklyMaxScore = DAYS.reduce(
+    (sum, d) => sum + effectiveDailyMaxScores[d.key],
+    0
+  );
   const totalEarnedMinutes = totalScore;
-  const usedMinutes = childData?.usedYoutubeMinutes || 0;
+  const usedMinutes = weekRecord.usedYoutubeMinutes || 0;
   const remainingMinutes = Math.max(0, totalEarnedMinutes - usedMinutes);
 
   return {

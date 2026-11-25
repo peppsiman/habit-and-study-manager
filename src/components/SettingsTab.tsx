@@ -8,7 +8,9 @@ import {
   Lock,
   RefreshCw,
   RotateCcw,
-  ShieldCheck
+  ShieldCheck,
+  Sparkles,
+  User
 } from 'lucide-react';
 import { CHILDREN_CONFIG } from '../constants';
 import {
@@ -42,6 +44,9 @@ interface SettingsTabProps {
   isCurrentDeviceOwner: boolean;
   effectiveConfigs: Record<ChildKey, ChildConfig>;
   onSaveItemScores: (nextScores: Record<ChildKey, Record<string, number>>) => void;
+  childPins: Record<ChildKey, string>;
+  onSaveChildPin: (childKey: ChildKey, newPin: string) => boolean;
+  onPreviewDynamicScoring: () => void;
 }
 
 function buildDraftFromConfigs(
@@ -82,8 +87,23 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   activeParentSession,
   isCurrentDeviceOwner,
   effectiveConfigs,
-  onSaveItemScores
+  onSaveItemScores,
+  childPins,
+  onSaveChildPin,
+  onPreviewDynamicScoring
 }) => {
+  const [draftChildPins, setDraftChildPins] = useState<Record<ChildKey, string>>(() => ({
+    suhyun: childPins.suhyun,
+    dahyun: childPins.dahyun
+  }));
+
+  useEffect(() => {
+    setDraftChildPins({
+      suhyun: childPins.suhyun,
+      dahyun: childPins.dahyun
+    });
+  }, [childPins]);
+
   const [draftScores, setDraftScores] = useState<Record<ChildKey, Record<string, string>>>(() =>
     buildDraftFromConfigs(effectiveConfigs)
   );
@@ -386,13 +406,70 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
               </button>
             </form>
 
-            <div className="p-5 rounded-xl border border-slate-200/80 bg-white space-y-3 text-xs text-slate-600 leading-relaxed">
-              <h4 className="text-sm font-bold text-slate-900">보안 및 운영 안내</h4>
-              <ul className="space-y-2 list-disc list-inside">
-                <li>변경한 비밀번호는 브라우저에 즉시 저장되어 다음 접속 시에도 유지됩니다.</li>
-                <li>숫자뿐만 아니라 영문 대·소문자 및 특수문자를 조합하여 안전하게 설정할 수 있습니다.</li>
-                <li>채점이나 시간 차감을 마친 뒤에는 상단의 로그아웃 버튼으로 자녀용 조회 모드로 전환하세요.</li>
-              </ul>
+            <div className="p-5 rounded-xl border border-slate-200/80 bg-white space-y-4 text-xs text-slate-600 leading-relaxed">
+              <div className="space-y-3">
+                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
+                  <User className="w-4 h-4 text-slate-700" />
+                  <span>자녀 로그인 비밀번호 관리</span>
+                </h4>
+                <p className="text-xs text-slate-500">
+                  자녀용 로그인 시 사용하는 비밀번호입니다. (초기값: 수현 8864 · 다현 7749)
+                </p>
+
+                {(['suhyun', 'dahyun'] as ChildKey[]).map((ck) => {
+                  const cfg = CHILDREN_CONFIG[ck];
+                  const val = draftChildPins[ck] ?? '';
+                  const changed = val.trim() !== childPins[ck];
+                  return (
+                    <form
+                      key={ck}
+                      onSubmit={(e) => {
+                        e.preventDefault();
+                        onSaveChildPin(ck, val);
+                      }}
+                      className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80"
+                    >
+                      <span
+                        className={`w-6 h-6 rounded-lg text-xs font-bold flex items-center justify-center text-white shrink-0 ${
+                          ck === 'suhyun' ? 'bg-blue-600' : 'bg-rose-600'
+                        }`}
+                      >
+                        {cfg.name.slice(0, 1)}
+                      </span>
+                      <span className="text-xs font-bold text-slate-900 w-10 shrink-0">
+                        {cfg.name}
+                      </span>
+                      <input
+                        type={showPinText ? 'text' : 'password'}
+                        value={val}
+                        onChange={(e) =>
+                          setDraftChildPins((prev) => ({
+                            ...prev,
+                            [ck]: e.target.value
+                          }))
+                        }
+                        placeholder="4자리 이상"
+                        className="flex-1 min-w-0 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-bold tracking-wider focus:outline-none focus:ring-2 focus:ring-slate-900"
+                      />
+                      <button
+                        type="submit"
+                        disabled={!changed || val.trim().length < 4}
+                        className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0"
+                      >
+                        저장
+                      </button>
+                    </form>
+                  );
+                })}
+              </div>
+
+              <div className="pt-3 border-t border-slate-100 space-y-2">
+                <h4 className="text-sm font-bold text-slate-900">보안 및 운영 안내</h4>
+                <ul className="space-y-1.5 list-disc list-inside">
+                  <li>변경한 비밀번호는 클라우드에 즉시 저장되어 모든 기기에서 적용됩니다.</li>
+                  <li>채점이나 시간 차감을 마친 뒤에는 상단의 로그아웃 버튼으로 잠금하세요.</li>
+                </ul>
+              </div>
             </div>
           </div>
         ) : (
@@ -432,6 +509,14 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
 
           {isParentMode && (
             <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                onClick={onPreviewDynamicScoring}
+                className="px-3 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+              >
+                <Sparkles className="w-3.5 h-3.5" />
+                <span>자동 배점 계산 미리보기</span>
+              </button>
               <button
                 type="button"
                 disabled={isDefaultDraftScores}
@@ -574,7 +659,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                   })}
 
                   <div className="px-4 py-2 bg-slate-50/50 font-semibold text-slate-600 flex justify-between tabular-nums">
-                    <span>공통 생활습관 (3항목)</span>
+                    <span>공통 생활습관 ({cfg.habitItems.length}항목)</span>
                     <span>일일 {habitDaily}점</span>
                   </div>
                   {cfg.habitItems.map((it) => {

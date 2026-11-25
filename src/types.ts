@@ -1,4 +1,5 @@
 export type ChildKey = 'suhyun' | 'dahyun';
+export type AuthRole = 'parent' | ChildKey;
 export type DayKey = 'MON' | 'TUE' | 'WED' | 'THU' | 'FRI';
 export type CheckStatus = 'NONE' | 'WEEKDAY' | 'WEEKEND';
 export type StampMode = 'CYCLE' | 'WEEKDAY' | 'WEEKEND';
@@ -14,6 +15,7 @@ export interface EvaluationItem {
   ruleNote?: string;
   score: number;
   category: 'STUDY' | 'HABIT';
+  scoringType?: 'CHECK' | 'READING_AUDIO';
 }
 
 export interface ChildConfig {
@@ -46,20 +48,64 @@ export interface PraiseSticker {
   date: string;
 }
 
-export interface ChildData {
-  weekTitle: string;
+export interface ReadingRecordingMeta {
+  audioId: string;
+  mimeType: string;
+  durationSec: number;
+  recordedAt: number;
+}
+
+export interface WeeklyRecord {
+  weekId: string;
   checks: Record<string, Record<DayKey, CheckStatus>>;
   earnedScores?: Record<string, Partial<Record<DayKey, number>>>;
-  itemScores?: Record<string, number>;
+  readingRecordings?: Partial<Record<DayKey, ReadingRecordingMeta>>;
   clothesSubChecks: Record<DayKey, Record<string, boolean>>;
   usedYoutubeMinutes: number;
   youtubeLogs: YoutubeLog[];
+}
+
+export interface ChildData {
+  weeks: Record<string, WeeklyRecord>;
+  itemScores?: Record<string, number>;
   stickers: PraiseSticker[];
   stickerRound: number;
   rewardGoal: string;
+  // Legacy v3 flat fields kept optional for smooth migration
+  weekTitle?: string;
+  checks?: Record<string, Record<DayKey, CheckStatus>>;
+  earnedScores?: Record<string, Partial<Record<DayKey, number>>>;
+  clothesSubChecks?: Record<DayKey, Record<string, boolean>>;
+  usedYoutubeMinutes?: number;
+  youtubeLogs?: YoutubeLog[];
 }
 
 export type ChildrenDataMap = Record<ChildKey, ChildData>;
+
+export interface DynamicScoreProposalItem {
+  itemId: string;
+  name: string;
+  previousScore: number;
+  proposedScore: number;
+  completedCount: number;
+  pairedLabel?: string;
+}
+
+export interface DynamicScoreProposalChild {
+  totalTarget: number;
+  previousTotal: number;
+  totalHistoricalChecks: number;
+  items: DynamicScoreProposalItem[];
+  proposedScores: Record<string, number>;
+}
+
+export interface DynamicScoreProposal {
+  id: string;
+  weekId: string;
+  generatedAt: number;
+  status: 'pending' | 'approved' | 'rejected';
+  children: Record<ChildKey, DynamicScoreProposalChild>;
+}
 
 export interface ChildTimerState {
   targetMinutes: number;
@@ -95,8 +141,11 @@ export interface CloudAppState {
   updatedAt: number;
   childrenData: ChildrenDataMap;
   parentPin: string;
+  childPins?: Record<ChildKey, string>;
   timers: TimersMap;
   activeParentSession?: ParentSessionInfo | null;
+  pendingScoreProposal?: DynamicScoreProposal | null;
+  lastDynamicScoreWeekId?: string | null;
 }
 
 export interface CloudStateApiResponse {

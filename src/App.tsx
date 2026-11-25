@@ -2,11 +2,14 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   Award,
   Calendar,
+  ChevronLeft,
+  ChevronRight,
   Clock,
   Cloud,
   CloudOff,
   KeyRound,
   Lock,
+  LogOut,
   Pause,
   Play,
   RefreshCw,
@@ -22,11 +25,14 @@ import {
   CHILDREN_CONFIG,
   CLOTHES_SUB_ITEMS,
   DAYS,
+  DEFAULT_CHILD_PINS,
+  STORAGE_KEY_CHILD_PINS,
   STORAGE_KEY_DATA,
   STORAGE_KEY_PIN,
   STORAGE_KEY_TIMERS
 } from './constants';
 import {
+  AuthRole,
   CheckStatus,
   ChildData,
   ChildKey,
@@ -35,6 +41,7 @@ import {
   CloudStorageType,
   ConfirmDialogState,
   DayKey,
+  DynamicScoreProposal,
   EvaluationItem,
   ParentSessionInfo,
   StampMode,
@@ -47,14 +54,30 @@ import {
 } from './types';
 import {
   computeChildScoreSummary,
+  createEmptyWeeklyRecord,
   createInitialChildData,
   formatMinutesReadable,
   formatTimer,
   freezeEarnedScoresForChild,
   getEffectiveChildConfig,
+  getWeeklyRecord,
   normalizeChildData,
   sanitizeItemScore
 } from './utils/scoreUtils';
+import {
+  formatWeekRangeLabel,
+  getWeekIdForTimestamp,
+  isPastMonday1AmKstForWeek,
+  shiftWeekId
+} from './utils/weekUtils';
+import { generateWeeklyDynamicScoreProposal } from './utils/dynamicScoring';
+import {
+  base64ToBlobUrl,
+  blobToBase64,
+  fetchReadingAudio,
+  pickSupportedAudioMimeType,
+  uploadReadingAudio
+} from './utils/audioRecorder';
 import {
   computeTimerRemaining,
   createDefaultChildTimer,
@@ -72,11 +95,18 @@ import {
   startContinuousAlarmSound,
   unlockAlarmAudio
 } from './utils/alarmAudio';
+import { LoginScreen } from './components/LoginScreen';
 import { WeeklyBoardTab } from './components/WeeklyBoardTab';
 import { YoutubeTimerTab } from './components/YoutubeTimerTab';
 import { StickerBoardTab } from './components/StickerBoardTab';
 import { SettingsTab } from './components/SettingsTab';
-import { ClothesHelperModal, ConfirmModal, PinModal, TimerAlarmModal } from './components/Modals';
+import {
+  ClothesHelperModal,
+  ConfirmModal,
+  DynamicScoreProposalModal,
+  PinModal,
+  TimerAlarmModal
+} from './components/Modals';
 
 const TAB_ITEMS: { key: TabKey; label: string; shortLabel: string; icon: React.ComponentType<{ className?: string }> }[] = [
   { key: 'board', label: '주간 채점 & 보충', shortLabel: '주간 채점', icon: Calendar },
@@ -86,8 +116,13 @@ const TAB_ITEMS: { key: TabKey; label: string; shortLabel: string; icon: React.C
 ];
 
 export default function App() {
+  const [authRole, setAuthRole] = useState<AuthRole | null>(null);
+  const [loginNotice, setLoginNotice] = useState<string | null>(null);
+  const [isBootstrapping, setIsBootstrapping] = useState(true);
+
   const [activeChild, setActiveChild] = useState<ChildKey>('suhyun');
   const [activeTab, setActiveTab] = useState<TabKey>('board');
+  const [selectedWeekId, setSelectedWeekId] = useState<string>(() => getWeekIdForTimestamp());
 
   // Child mode (false, default) vs Parent mode (true, PIN protected)
   const [isParentMode, setIsParentMode] = useState(false);
@@ -98,6 +133,27 @@ export default function App() {
       return '1234';
     }
   });
+  const [childPins, setChildPins] = useState<Record<ChildKey, string>>(() => {
+    try {
+      const saved = localStorage.getItem(STORAGE_KEY_CHILD_PINS);
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        return {
+          suhyun:
+            typeof parsed?.suhyun === 'string' && parsed.suhyun.trim().length >= 4
+              ? parsed.suhyun.trim()
+              : DEFAULT_CHILD_PINS.suhyun,
+          dahyun:
+            typeof parsed?.dahyun === 'string' && parsed.dahyun.trim().length >= 4
+              ? parsed.dahyun.trim()
+              : DEFAULT_CHILD_PINS.dahyun
+        };
+      }
+    } catch {
+      // ignore
+    }
+    return { ...DEFAULT_CHILD_PINS };
+  });
   const [pinModalOpen, setPinModalOpen] = useState(false);
   const [pinInput, setPinInput] = useState('');
   const [pinError, setPinError] = useState('');
@@ -107,6 +163,10 @@ export default function App() {
   const [confirmNewPinInput, setConfirmNewPinInput] = useState('');
   const [showPinText, setShowPinText] = useState(false);
 
+  // Weekly automatic dynamic score proposal state
+  const [pendingScoreProposal, setPendingScoreProposal] = useState<DynamicScoreProposal | null>(null);
+  const [lastDynamicScoreWeekId, setLastDynamicScoreWeekId] = useState<string | null>(null);
+
   // Board filter & stamp controls
   const [showIncompleteOnly, setShowIncompleteOnly] = useState(false);
   const [stampMode, setStampMode] = useState<StampMode>('CYCLE');
@@ -115,23 +175,34 @@ export default function App() {
     dayLabel: string;
   } | null>(null);
 
+  // Audio recording & playback controls for reading journal
+  const [recordingTarget, setRecordingTarget] = useState<{
+    childKey: ChildKey;
+    weekId: string;
+    dayKey: DayKey;
+  } | null>(null);
+  const [recordingElapsedSec, setRecordingElapsedSec] = useState(0);
+  const [isUploadingAudio, setIsUploadingAudio] = useState(false);
+  const [playingAudioId, setPlayingAudioId] = useState<string | null>(null);
+
   // Children data state
   const [childrenData, setChildrenData] = useState<ChildrenDataMap>(() => {
+    const initialWeekId = getWeekIdForTimestamp();
     try {
       const saved = localStorage.getItem(STORAGE_KEY_DATA);
       if (saved) {
         const parsed = JSON.parse(saved);
         return {
-          suhyun: normalizeChildData('suhyun', parsed?.suhyun),
-          dahyun: normalizeChildData('dahyun', parsed?.dahyun)
+          suhyun: normalizeChildData('suhyun', parsed?.suhyun, initialWeekId),
+          dahyun: normalizeChildData('dahyun', parsed?.dahyun, initialWeekId)
         };
       }
     } catch (e) {
       console.error('Failed to load from localStorage', e);
     }
     return {
-      suhyun: createInitialChildData('suhyun'),
-      dahyun: createInitialChildData('dahyun')
+      suhyun: createInitialChildData('suhyun', initialWeekId),
+      dahyun: createInitialChildData('dahyun', initialWeekId)
     };
   });
 
@@ -165,10 +236,70 @@ export default function App() {
   const storageTypeRef = useRef<CloudStorageType>('none');
   const myParentSessionIdRef = useRef<string | null>(null);
   const mySessionLoggedInAtRef = useRef(0);
+  const activeAuthPinRef = useRef('');
   const isParentModeRef = useRef(false);
   isParentModeRef.current = isParentMode;
   const activeParentSessionRef = useRef<ParentSessionInfo | null>(null);
   activeParentSessionRef.current = activeParentSession;
+
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const mediaStreamRef = useRef<MediaStream | null>(null);
+  const audioChunksRef = useRef<BlobPart[]>([]);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const recordingStartMsRef = useRef(0);
+  const recordingTargetRef = useRef<{
+    childKey: ChildKey;
+    weekId: string;
+    dayKey: DayKey;
+  } | null>(null);
+  recordingTargetRef.current = recordingTarget;
+  const cancelRecordingOnStopRef = useRef(false);
+  const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+  const audioObjectUrlRef = useRef<string | null>(null);
+
+  const cleanupMediaAndAudio = useCallback((cancelRecorder = true) => {
+    if (recordingTimerRef.current) {
+      clearInterval(recordingTimerRef.current);
+      recordingTimerRef.current = null;
+    }
+    if (mediaRecorderRef.current) {
+      cancelRecordingOnStopRef.current = cancelRecorder;
+      try {
+        if (mediaRecorderRef.current.state !== 'inactive') {
+          mediaRecorderRef.current.stop();
+        }
+      } catch {
+        // ignore
+      }
+      mediaRecorderRef.current = null;
+    }
+    if (mediaStreamRef.current) {
+      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
+      mediaStreamRef.current = null;
+    }
+    setRecordingTarget(null);
+    setRecordingElapsedSec(0);
+
+    if (audioPlayerRef.current) {
+      try {
+        audioPlayerRef.current.pause();
+      } catch {
+        // ignore
+      }
+      audioPlayerRef.current = null;
+    }
+    if (audioObjectUrlRef.current) {
+      URL.revokeObjectURL(audioObjectUrlRef.current);
+      audioObjectUrlRef.current = null;
+    }
+    setPlayingAudioId(null);
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      cleanupMediaAndAudio(true);
+    };
+  }, [cleanupMediaAndAudio]);
   const pendingTimerDeductRef = useRef<{ childKey: ChildKey; mode: 'target' | 'elapsed' } | null>(
     null
   );
@@ -217,11 +348,21 @@ export default function App() {
   }, []);
 
   const buildSyncSignature = useCallback(
-    (data: ChildrenDataMap, pin: string, timersData: TimersMap): string => {
+    (
+      data: ChildrenDataMap,
+      pin: string,
+      cPins: Record<ChildKey, string>,
+      timersData: TimersMap,
+      proposal: DynamicScoreProposal | null,
+      lastDynamicWeek: string | null
+    ): string => {
       return JSON.stringify({
         childrenData: data,
         parentPin: pin,
-        timers: buildSyncTimersPayload(timersData)
+        childPins: cPins,
+        timers: buildSyncTimersPayload(timersData),
+        pendingScoreProposal: proposal,
+        lastDynamicScoreWeekId: lastDynamicWeek
       });
     },
     [buildSyncTimersPayload]
@@ -230,12 +371,18 @@ export default function App() {
   const latestSyncSnapshotRef = useRef({
     childrenData,
     savedParentPin,
-    timers
+    childPins,
+    timers,
+    pendingScoreProposal,
+    lastDynamicScoreWeekId
   });
   latestSyncSnapshotRef.current = {
     childrenData,
     savedParentPin,
-    timers
+    childPins,
+    timers,
+    pendingScoreProposal,
+    lastDynamicScoreWeekId
   };
   storageTypeRef.current = storageType;
 
@@ -257,11 +404,15 @@ export default function App() {
         if (replacedByOtherDevice || sessionClearedRemotely) {
           myParentSessionIdRef.current = null;
           mySessionLoggedInAtRef.current = 0;
+          activeAuthPinRef.current = '';
           isParentModeRef.current = false;
           pendingPushRef.current = false;
           pendingTimerDeductRef.current = null;
+          cleanupMediaAndAudio(true);
           setIsParentMode(false);
+          setAuthRole(null);
           if (!options?.suppressAutoLogoutToast) {
+            setLoginNotice('다른 기기에서 부모님 로그인이 감지되어 이 기기는 자동 로그아웃되었습니다.');
             showToast(
               '다른 기기에서 부모님 로그인이 감지되어 이 기기는 자동 로그아웃되었습니다.',
               'warning'
@@ -270,63 +421,103 @@ export default function App() {
         }
       }
 
+      const currentWeekId = getWeekIdForTimestamp();
       const normalizedChildren: ChildrenDataMap = {
-        suhyun: normalizeChildData('suhyun', remote.childrenData?.suhyun),
-        dahyun: normalizeChildData('dahyun', remote.childrenData?.dahyun)
+        suhyun: normalizeChildData('suhyun', remote.childrenData?.suhyun, currentWeekId),
+        dahyun: normalizeChildData('dahyun', remote.childrenData?.dahyun, currentWeekId)
       };
       const nextPin =
         typeof remote.parentPin === 'string' && remote.parentPin.trim().length >= 4
           ? remote.parentPin.trim()
           : latestSyncSnapshotRef.current.savedParentPin;
+      const nextChildPins: Record<ChildKey, string> = {
+        suhyun:
+          typeof remote.childPins?.suhyun === 'string' && remote.childPins.suhyun.trim().length >= 4
+            ? remote.childPins.suhyun.trim()
+            : latestSyncSnapshotRef.current.childPins.suhyun,
+        dahyun:
+          typeof remote.childPins?.dahyun === 'string' && remote.childPins.dahyun.trim().length >= 4
+            ? remote.childPins.dahyun.trim()
+            : latestSyncSnapshotRef.current.childPins.dahyun
+      };
       const nextTimers = hydrateTimers(remote.timers);
+      const nextProposal =
+        remote.pendingScoreProposal !== undefined
+          ? remote.pendingScoreProposal ?? null
+          : latestSyncSnapshotRef.current.pendingScoreProposal;
+      const nextLastDynamicWeek =
+        remote.lastDynamicScoreWeekId !== undefined
+          ? remote.lastDynamicScoreWeekId ?? null
+          : latestSyncSnapshotRef.current.lastDynamicScoreWeekId;
 
-      lastCloudSignatureRef.current = buildSyncSignature(normalizedChildren, nextPin, nextTimers);
+      lastCloudSignatureRef.current = buildSyncSignature(
+        normalizedChildren,
+        nextPin,
+        nextChildPins,
+        nextTimers,
+        nextProposal,
+        nextLastDynamicWeek
+      );
       lastUpdatedAtRef.current = remote.updatedAt || Date.now();
       latestSyncSnapshotRef.current = {
         childrenData: normalizedChildren,
         savedParentPin: nextPin,
-        timers: nextTimers
+        childPins: nextChildPins,
+        timers: nextTimers,
+        pendingScoreProposal: nextProposal,
+        lastDynamicScoreWeekId: nextLastDynamicWeek
       };
 
       setActiveParentSession(remoteSession);
       setChildrenData(normalizedChildren);
       setSavedParentPin(nextPin);
+      setChildPins(nextChildPins);
       setTimers(nextTimers);
+      setPendingScoreProposal(nextProposal);
+      setLastDynamicScoreWeekId(nextLastDynamicWeek);
 
       try {
         localStorage.setItem(STORAGE_KEY_PIN, nextPin);
+        localStorage.setItem(STORAGE_KEY_CHILD_PINS, JSON.stringify(nextChildPins));
       } catch (err) {
-        console.error('Failed to save synced PIN to localStorage', err);
+        console.error('Failed to save synced PINs to localStorage', err);
       }
     },
-    [buildSyncSignature, showToast]
+    [buildSyncSignature, cleanupMediaAndAudio, showToast]
   );
 
   const forceLogoutDueToOtherDevice = useCallback(
     (remoteState?: CloudAppState | null) => {
       myParentSessionIdRef.current = null;
       mySessionLoggedInAtRef.current = 0;
+      activeAuthPinRef.current = '';
       isParentModeRef.current = false;
       pendingPushRef.current = false;
       pendingTimerDeductRef.current = null;
+      cleanupMediaAndAudio(true);
       setIsParentMode(false);
+      setAuthRole(null);
 
       if (remoteState && remoteState.childrenData) {
         applyRemoteState(remoteState, { suppressAutoLogoutToast: true });
       }
+      setLoginNotice('다른 기기에서 부모님 로그인이 감지되어 이 기기는 자동 로그아웃되었습니다.');
       showToast(
         '다른 기기에서 부모님 로그인이 감지되어 이 기기는 자동 로그아웃되었습니다.',
         'warning'
       );
     },
-    [applyRemoteState, showToast]
+    [applyRemoteState, cleanupMediaAndAudio, showToast]
   );
 
   const pushStateToCloud = useCallback(
     async (
       data: ChildrenDataMap,
       pin: string,
+      cPins: Record<ChildKey, string>,
       timersData: TimersMap,
+      proposal: DynamicScoreProposal | null,
+      lastDynamicWeek: string | null,
       options?: {
         claimSession?: boolean;
         releaseSession?: boolean;
@@ -347,11 +538,14 @@ export default function App() {
       }
 
       const syncTimers = buildSyncTimersPayload(timersData);
-      const signature = JSON.stringify({
-        childrenData: data,
-        parentPin: pin,
-        timers: syncTimers
-      });
+      const signature = buildSyncSignature(
+        data,
+        pin,
+        cPins,
+        syncTimers,
+        proposal,
+        lastDynamicWeek
+      );
       const updatedAt = Math.max(Date.now(), lastUpdatedAtRef.current + 1);
       const sessionPayload =
         options?.sessionOverride !== undefined
@@ -361,12 +555,15 @@ export default function App() {
           : activeParentSessionRef.current;
 
       const payload: CloudAppState = {
-        version: 3,
+        version: 4,
         updatedAt,
         childrenData: data,
         parentPin: pin,
+        childPins: cPins,
         timers: syncTimers,
-        activeParentSession: sessionPayload
+        activeParentSession: sessionPayload,
+        pendingScoreProposal: proposal,
+        lastDynamicScoreWeekId: lastDynamicWeek
       };
 
       setSyncStatus('syncing');
@@ -406,7 +603,7 @@ export default function App() {
         return false;
       }
     },
-    [buildSyncTimersPayload, forceLogoutDueToOtherDevice]
+    [buildSyncSignature, buildSyncTimersPayload, forceLogoutDueToOtherDevice]
   );
 
   // Initial cloud hydration on mount
@@ -422,6 +619,7 @@ export default function App() {
           setStorageType('none');
           setSyncStatus('local_only');
           isInitialHydratedRef.current = true;
+          setIsBootstrapping(false);
           return;
         }
 
@@ -435,16 +633,26 @@ export default function App() {
           // Seed empty cloud storage with current initial/local data
           const snap = latestSyncSnapshotRef.current;
           isInitialHydratedRef.current = true;
-          await pushStateToCloud(snap.childrenData, snap.savedParentPin, snap.timers, {
-            allowInitialSeed: true,
-            sessionOverride: null
-          });
+          await pushStateToCloud(
+            snap.childrenData,
+            snap.savedParentPin,
+            snap.childPins,
+            snap.timers,
+            snap.pendingScoreProposal,
+            snap.lastDynamicScoreWeekId,
+            {
+              allowInitialSeed: true,
+              sessionOverride: null
+            }
+          );
         }
       } catch (err) {
         console.error('Failed to fetch initial cloud state', err);
         if (!active) return;
         setSyncStatus('error');
         isInitialHydratedRef.current = true;
+      } finally {
+        if (active) setIsBootstrapping(false);
       }
     };
 
@@ -454,7 +662,7 @@ export default function App() {
     };
   }, [applyRemoteState, pushStateToCloud]);
 
-  // Persist children data to localStorage
+  // Persist children data & child PINs to localStorage
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEY_DATA, JSON.stringify(childrenData));
@@ -462,6 +670,14 @@ export default function App() {
       console.error('Failed to save to localStorage', e);
     }
   }, [childrenData]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY_CHILD_PINS, JSON.stringify(childPins));
+    } catch (e) {
+      console.error('Failed to save child PINs to localStorage', e);
+    }
+  }, [childPins]);
 
   // Persist timers to localStorage
   useEffect(() => {
@@ -473,8 +689,24 @@ export default function App() {
   }, [timers]);
 
   const currentSyncSignature = useMemo(
-    () => buildSyncSignature(childrenData, savedParentPin, timers),
-    [buildSyncSignature, childrenData, savedParentPin, timers]
+    () =>
+      buildSyncSignature(
+        childrenData,
+        savedParentPin,
+        childPins,
+        timers,
+        pendingScoreProposal,
+        lastDynamicScoreWeekId
+      ),
+    [
+      buildSyncSignature,
+      childrenData,
+      savedParentPin,
+      childPins,
+      timers,
+      pendingScoreProposal,
+      lastDynamicScoreWeekId
+    ]
   );
 
   // Debounced cloud push ONLY from the active logged-in parent device (excludes 1-sec ticks)
@@ -487,7 +719,14 @@ export default function App() {
     pendingPushRef.current = true;
     const timeoutId = setTimeout(async () => {
       try {
-        await pushStateToCloud(childrenData, savedParentPin, timers);
+        await pushStateToCloud(
+          childrenData,
+          savedParentPin,
+          childPins,
+          timers,
+          pendingScoreProposal,
+          lastDynamicScoreWeekId
+        );
       } finally {
         pendingPushRef.current = false;
       }
@@ -497,7 +736,18 @@ export default function App() {
       clearTimeout(timeoutId);
       pendingPushRef.current = false;
     };
-  }, [currentSyncSignature, storageType, isParentMode, childrenData, savedParentPin, timers, pushStateToCloud]);
+  }, [
+    currentSyncSignature,
+    storageType,
+    isParentMode,
+    childrenData,
+    savedParentPin,
+    childPins,
+    timers,
+    pendingScoreProposal,
+    lastDynamicScoreWeekId,
+    pushStateToCloud
+  ]);
 
   const syncFromCloud = useCallback(
     async (isManual = false) => {
@@ -558,9 +808,23 @@ export default function App() {
 
         if (isParentModeRef.current && myParentSessionIdRef.current) {
           const snap = latestSyncSnapshotRef.current;
-          const localSig = buildSyncSignature(snap.childrenData, snap.savedParentPin, snap.timers);
+          const localSig = buildSyncSignature(
+            snap.childrenData,
+            snap.savedParentPin,
+            snap.childPins,
+            snap.timers,
+            snap.pendingScoreProposal,
+            snap.lastDynamicScoreWeekId
+          );
           if (localSig !== lastCloudSignatureRef.current) {
-            const ok = await pushStateToCloud(snap.childrenData, snap.savedParentPin, snap.timers);
+            const ok = await pushStateToCloud(
+              snap.childrenData,
+              snap.savedParentPin,
+              snap.childPins,
+              snap.timers,
+              snap.pendingScoreProposal,
+              snap.lastDynamicScoreWeekId
+            );
             if (isManual && ok) {
               showToast('변경된 내역을 클라우드에 저장했습니다.', 'success');
             }
@@ -708,18 +972,68 @@ export default function App() {
 
   const summaries = useMemo(() => {
     return {
-      suhyun: computeChildScoreSummary('suhyun', childrenData.suhyun),
-      dahyun: computeChildScoreSummary('dahyun', childrenData.dahyun)
+      suhyun: computeChildScoreSummary('suhyun', childrenData.suhyun, selectedWeekId),
+      dahyun: computeChildScoreSummary('dahyun', childrenData.dahyun, selectedWeekId)
     };
-  }, [childrenData]);
+  }, [childrenData, selectedWeekId]);
 
   const currentConfig = effectiveConfigs[activeChild];
   const currentData = childrenData[activeChild];
+  const currentWeekRecord = useMemo(
+    () => getWeeklyRecord(activeChild, currentData, selectedWeekId),
+    [activeChild, currentData, selectedWeekId]
+  );
   const scoreSummary = summaries[activeChild];
   const allItems = useMemo(
     () => [...currentConfig.studyItems, ...currentConfig.habitItems],
     [currentConfig]
   );
+
+  const realCurrentWeekId = getWeekIdForTimestamp();
+  const isViewingCurrentWeek = selectedWeekId === realCurrentWeekId;
+
+  // Enforce locked child profile when logged in as child
+  useEffect(() => {
+    if (authRole === 'suhyun' || authRole === 'dahyun') {
+      if (activeChild !== authRole) setActiveChild(authRole);
+      if (activeTab === 'settings') setActiveTab('board');
+    }
+  }, [authRole, activeChild, activeTab]);
+
+  // Helper to evaluate weekly automatic dynamic scoring at/after Monday 01:00 KST
+  const evaluateDynamicScoreProposal = useCallback(
+    (
+      dataSnapshot: ChildrenDataMap,
+      existingProposal: DynamicScoreProposal | null,
+      lastProcessedWeekId: string | null
+    ): DynamicScoreProposal | null => {
+      const targetWeekId = getWeekIdForTimestamp();
+      if (existingProposal) return existingProposal;
+      if (lastProcessedWeekId === targetWeekId) return null;
+      if (!isPastMonday1AmKstForWeek(targetWeekId)) return null;
+      return generateWeeklyDynamicScoreProposal(dataSnapshot, targetWeekId, {
+        requirePastData: true
+      });
+    },
+    []
+  );
+
+  // Check every 60 seconds while parent is logged in (handles passing Monday 01:00 KST live)
+  useEffect(() => {
+    if (!isParentMode || authRole !== 'parent') return;
+    const checkWeeklyRollover = () => {
+      const proposal = evaluateDynamicScoreProposal(
+        latestSyncSnapshotRef.current.childrenData,
+        latestSyncSnapshotRef.current.pendingScoreProposal,
+        latestSyncSnapshotRef.current.lastDynamicScoreWeekId
+      );
+      if (proposal && !latestSyncSnapshotRef.current.pendingScoreProposal) {
+        setPendingScoreProposal(proposal);
+      }
+    };
+    const timerId = setInterval(checkWeeklyRollover, 60000);
+    return () => clearInterval(timerId);
+  }, [isParentMode, authRole, evaluateDynamicScoreProposal]);
 
   // Parent permission check
   const requireParentMode = (actionName = '이 기능'): boolean => {
@@ -733,23 +1047,83 @@ export default function App() {
     return true;
   };
 
-  const handleParentLogin = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (isLoggingIn) return;
-
-    const enteredPin = pinInput;
+  // Initial / Screen Login (Parent OR Child)
+  const handleAuthLogin = async (
+    role: AuthRole,
+    enteredPin: string
+  ): Promise<{ ok: boolean; error?: string }> => {
+    if (isLoggingIn) return { ok: false, error: '로그인 처리 중입니다.' };
     if (!enteredPin) {
-      setPinError('비밀번호를 입력해주세요.');
-      return;
+      return { ok: false, error: '비밀번호를 입력해주세요.' };
     }
 
-    // Unlock Web Audio synchronously inside user gesture so handed-over running timers ring reliably
     unlockAlarmAudio();
+    setLoginNotice(null);
 
+    if (role === 'suhyun' || role === 'dahyun') {
+      const childName = CHILDREN_CONFIG[role].name;
+
+      if (storageTypeRef.current === 'none') {
+        if (enteredPin !== childPins[role]) {
+          return { ok: false, error: `${childName} 비밀번호가 일치하지 않습니다.` };
+        }
+        activeAuthPinRef.current = enteredPin;
+        setAuthRole(role);
+        setIsParentMode(false);
+        setActiveChild(role);
+        setActiveTab('board');
+        setSelectedWeekId(getWeekIdForTimestamp());
+        showToast(`${childName} 계정에 로그인되었습니다.`, 'success');
+        return { ok: true };
+      }
+
+      setIsLoggingIn(true);
+      try {
+        const res = await fetchCloudState();
+        if (!res.ok) {
+          return { ok: false, error: '클라우드 서버와 통신할 수 없습니다. 잠시 후 다시 시도해주세요.' };
+        }
+        if (!res.configured) {
+          setStorageType('none');
+          setSyncStatus('local_only');
+          if (enteredPin !== childPins[role]) {
+            return { ok: false, error: `${childName} 비밀번호가 일치하지 않습니다.` };
+          }
+        } else {
+          const remoteState = res.state && res.state.childrenData ? res.state : null;
+          if (remoteState && (remoteState.updatedAt || 0) > lastUpdatedAtRef.current) {
+            applyRemoteState(remoteState, { suppressAutoLogoutToast: true });
+          }
+          const effectiveChildPin =
+            remoteState?.childPins?.[role] && remoteState.childPins[role].trim().length >= 4
+              ? remoteState.childPins[role].trim()
+              : childPins[role];
+
+          if (enteredPin !== effectiveChildPin) {
+            return { ok: false, error: `${childName} 비밀번호가 일치하지 않습니다.` };
+          }
+        }
+
+        activeAuthPinRef.current = enteredPin;
+        setAuthRole(role);
+        setIsParentMode(false);
+        setActiveChild(role);
+        setActiveTab('board');
+        setSelectedWeekId(getWeekIdForTimestamp());
+        showToast(`${childName} 계정에 로그인되었습니다.`, 'success');
+        return { ok: true };
+      } catch (err) {
+        console.error('Child login failed', err);
+        return { ok: false, error: '로그인 처리 중 오류가 발생했습니다.' };
+      } finally {
+        setIsLoggingIn(false);
+      }
+    }
+
+    // Parent login from LoginScreen (exclusive single-device session)
     if (storageTypeRef.current === 'none') {
       if (enteredPin !== savedParentPin) {
-        setPinError('비밀번호가 일치하지 않습니다. 다시 확인해주세요.');
-        return;
+        return { ok: false, error: '부모님 비밀번호가 일치하지 않습니다.' };
       }
       const localSession: ParentSessionInfo = {
         sessionId: createParentSessionId(),
@@ -758,36 +1132,35 @@ export default function App() {
       };
       myParentSessionIdRef.current = localSession.sessionId;
       mySessionLoggedInAtRef.current = localSession.loggedInAt;
+      activeAuthPinRef.current = enteredPin;
       isParentModeRef.current = true;
       setActiveParentSession(localSession);
       setIsParentMode(true);
-      setPinModalOpen(false);
-      setPinInput('');
-      setPinError('');
-      showToast('부모님 관리 모드로 로그인되었습니다.', 'success');
-
-      if (pendingTimerDeductRef.current) {
-        const pending = pendingTimerDeductRef.current;
-        pendingTimerDeductRef.current = null;
-        performTimerDeductRef.current?.(pending.childKey, pending.mode, true);
+      setAuthRole('parent');
+      setSelectedWeekId(getWeekIdForTimestamp());
+      const proposal = evaluateDynamicScoreProposal(
+        latestSyncSnapshotRef.current.childrenData,
+        latestSyncSnapshotRef.current.pendingScoreProposal,
+        latestSyncSnapshotRef.current.lastDynamicScoreWeekId
+      );
+      if (proposal && !latestSyncSnapshotRef.current.pendingScoreProposal) {
+        setPendingScoreProposal(proposal);
       }
-      return;
+      showToast('부모님 관리 모드로 로그인되었습니다.', 'success');
+      return { ok: true };
     }
 
     setIsLoggingIn(true);
     try {
       const res = await fetchCloudState();
       if (!res.ok) {
-        setPinError('클라우드 서버와 통신할 수 없습니다. 잠시 후 다시 시도해주세요.');
-        return;
+        return { ok: false, error: '클라우드 서버와 통신할 수 없습니다. 잠시 후 다시 시도해주세요.' };
       }
-
       if (!res.configured) {
         setStorageType('none');
         setSyncStatus('local_only');
         if (enteredPin !== savedParentPin) {
-          setPinError('비밀번호가 일치하지 않습니다. 다시 확인해주세요.');
-          return;
+          return { ok: false, error: '부모님 비밀번호가 일치하지 않습니다.' };
         }
         const localSession: ParentSessionInfo = {
           sessionId: createParentSessionId(),
@@ -796,21 +1169,25 @@ export default function App() {
         };
         myParentSessionIdRef.current = localSession.sessionId;
         mySessionLoggedInAtRef.current = localSession.loggedInAt;
+        activeAuthPinRef.current = enteredPin;
         isParentModeRef.current = true;
         setActiveParentSession(localSession);
         setIsParentMode(true);
-        setPinModalOpen(false);
-        setPinInput('');
-        setPinError('');
-        showToast('부모님 관리 모드로 로그인되었습니다.', 'success');
-        if (pendingTimerDeductRef.current) {
-          const pending = pendingTimerDeductRef.current;
-          pendingTimerDeductRef.current = null;
-          performTimerDeductRef.current?.(pending.childKey, pending.mode, true);
+        setAuthRole('parent');
+        setSelectedWeekId(getWeekIdForTimestamp());
+        const proposal = evaluateDynamicScoreProposal(
+          latestSyncSnapshotRef.current.childrenData,
+          latestSyncSnapshotRef.current.pendingScoreProposal,
+          latestSyncSnapshotRef.current.lastDynamicScoreWeekId
+        );
+        if (proposal && !latestSyncSnapshotRef.current.pendingScoreProposal) {
+          setPendingScoreProposal(proposal);
         }
-        return;
+        showToast('부모님 관리 모드로 로그인되었습니다.', 'success');
+        return { ok: true };
       }
 
+      const currentWeekId = getWeekIdForTimestamp();
       const remoteState = res.state && res.state.childrenData ? res.state : null;
       const effectivePin =
         remoteState?.parentPin && typeof remoteState.parentPin === 'string' && remoteState.parentPin.trim().length >= 4
@@ -822,19 +1199,41 @@ export default function App() {
       }
 
       if (enteredPin !== effectivePin) {
-        setPinError('비밀번호가 일치하지 않습니다. 다시 확인해주세요.');
-        return;
+        return { ok: false, error: '부모님 비밀번호가 일치하지 않습니다.' };
       }
 
       const freshChildren: ChildrenDataMap = remoteState
         ? {
-            suhyun: normalizeChildData('suhyun', remoteState.childrenData?.suhyun),
-            dahyun: normalizeChildData('dahyun', remoteState.childrenData?.dahyun)
+            suhyun: normalizeChildData('suhyun', remoteState.childrenData?.suhyun, currentWeekId),
+            dahyun: normalizeChildData('dahyun', remoteState.childrenData?.dahyun, currentWeekId)
           }
         : latestSyncSnapshotRef.current.childrenData;
       const freshTimers: TimersMap = remoteState
         ? hydrateTimers(remoteState.timers)
         : latestSyncSnapshotRef.current.timers;
+      const freshChildPins: Record<ChildKey, string> = {
+        suhyun:
+          remoteState?.childPins?.suhyun && remoteState.childPins.suhyun.trim().length >= 4
+            ? remoteState.childPins.suhyun.trim()
+            : latestSyncSnapshotRef.current.childPins.suhyun,
+        dahyun:
+          remoteState?.childPins?.dahyun && remoteState.childPins.dahyun.trim().length >= 4
+            ? remoteState.childPins.dahyun.trim()
+            : latestSyncSnapshotRef.current.childPins.dahyun
+      };
+      const existingProposal =
+        remoteState?.pendingScoreProposal !== undefined
+          ? remoteState.pendingScoreProposal ?? null
+          : latestSyncSnapshotRef.current.pendingScoreProposal;
+      const freshLastDynamicWeek =
+        remoteState?.lastDynamicScoreWeekId !== undefined
+          ? remoteState.lastDynamicScoreWeekId ?? null
+          : latestSyncSnapshotRef.current.lastDynamicScoreWeekId;
+      const proposalToShow = evaluateDynamicScoreProposal(
+        freshChildren,
+        existingProposal,
+        freshLastDynamicWeek
+      );
 
       const hadOtherSession = Boolean(remoteState?.activeParentSession?.sessionId);
       const newSession: ParentSessionInfo = {
@@ -847,12 +1246,15 @@ export default function App() {
 
       const claimRes = await saveCloudState(
         {
-          version: 3,
+          version: 4,
           updatedAt,
           childrenData: freshChildren,
           parentPin: effectivePin,
+          childPins: freshChildPins,
           timers: syncTimers,
-          activeParentSession: newSession
+          activeParentSession: newSession,
+          pendingScoreProposal: proposalToShow,
+          lastDynamicScoreWeekId: freshLastDynamicWeek
         },
         {
           claimSession: true,
@@ -861,19 +1263,29 @@ export default function App() {
       );
 
       if (!claimRes.ok) {
-        setPinError('로그인 세션 등록에 실패했습니다. 잠시 후 다시 시도해주세요.');
-        return;
+        return { ok: false, error: '로그인 세션 등록에 실패했습니다. 잠시 후 다시 시도해주세요.' };
       }
 
       myParentSessionIdRef.current = newSession.sessionId;
       mySessionLoggedInAtRef.current = newSession.loggedInAt;
+      activeAuthPinRef.current = effectivePin;
       isParentModeRef.current = true;
-      lastCloudSignatureRef.current = buildSyncSignature(freshChildren, effectivePin, freshTimers);
+      lastCloudSignatureRef.current = buildSyncSignature(
+        freshChildren,
+        effectivePin,
+        freshChildPins,
+        freshTimers,
+        proposalToShow,
+        freshLastDynamicWeek
+      );
       lastUpdatedAtRef.current = claimRes.state?.updatedAt || updatedAt;
       latestSyncSnapshotRef.current = {
         childrenData: freshChildren,
         savedParentPin: effectivePin,
-        timers: freshTimers
+        childPins: freshChildPins,
+        timers: freshTimers,
+        pendingScoreProposal: proposalToShow,
+        lastDynamicScoreWeekId: freshLastDynamicWeek
       };
 
       setStorageType(claimRes.storageType);
@@ -882,56 +1294,171 @@ export default function App() {
       setActiveParentSession(newSession);
       setChildrenData(freshChildren);
       setSavedParentPin(effectivePin);
+      setChildPins(freshChildPins);
       setTimers(freshTimers);
+      setPendingScoreProposal(proposalToShow);
+      setLastDynamicScoreWeekId(freshLastDynamicWeek);
       try {
         localStorage.setItem(STORAGE_KEY_PIN, effectivePin);
+        localStorage.setItem(STORAGE_KEY_CHILD_PINS, JSON.stringify(freshChildPins));
       } catch (err) {
         console.error(err);
       }
 
       setIsParentMode(true);
-      setPinModalOpen(false);
-      setPinInput('');
-      setPinError('');
+      setAuthRole('parent');
+      setSelectedWeekId(currentWeekId);
       showToast(
         hadOtherSession
           ? '부모님 모드로 로그인되었습니다. (기존 로그인 기기는 자동 로그아웃)'
           : '부모님 관리 모드로 로그인되었습니다.',
         'success'
       );
-
-      if (pendingTimerDeductRef.current) {
-        const pending = pendingTimerDeductRef.current;
-        pendingTimerDeductRef.current = null;
-        performTimerDeductRef.current?.(pending.childKey, pending.mode, true);
-      }
+      return { ok: true };
     } catch (err) {
       console.error('Parent login failed', err);
-      setPinError('로그인 처리 중 오류가 발생했습니다.');
+      return { ok: false, error: '로그인 처리 중 오류가 발생했습니다.' };
     } finally {
       setIsLoggingIn(false);
     }
   };
 
-  const handleParentLogout = () => {
+  const handleParentLogin = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (isLoggingIn) return;
+
+    const result = await handleAuthLogin('parent', pinInput);
+    if (!result.ok) {
+      setPinError(result.error || '비밀번호가 일치하지 않습니다.');
+      return;
+    }
+
+    setPinModalOpen(false);
+    setPinInput('');
+    setPinError('');
+
+    if (pendingTimerDeductRef.current) {
+      const pending = pendingTimerDeductRef.current;
+      pendingTimerDeductRef.current = null;
+      performTimerDeductRef.current?.(pending.childKey, pending.mode, true);
+    }
+  };
+
+  const handleLogout = () => {
+    cleanupMediaAndAudio(true);
     const prevSessionId = myParentSessionIdRef.current;
+    const wasParent = isParentModeRef.current;
     myParentSessionIdRef.current = null;
     mySessionLoggedInAtRef.current = 0;
+    activeAuthPinRef.current = '';
     isParentModeRef.current = false;
     pendingPushRef.current = false;
     pendingTimerDeductRef.current = null;
     setIsParentMode(false);
+    setAuthRole(null);
     setActiveParentSession(null);
-    showToast('자녀용 조회 모드로 잠금되었습니다.', 'info');
+    setLoginNotice(null);
+    showToast('로그아웃되었습니다.', 'info');
 
-    if (storageTypeRef.current !== 'none' && prevSessionId) {
+    if (wasParent && storageTypeRef.current !== 'none' && prevSessionId) {
       const snap = latestSyncSnapshotRef.current;
-      void pushStateToCloud(snap.childrenData, snap.savedParentPin, snap.timers, {
-        releaseSession: true,
-        clientSessionIdOverride: prevSessionId,
-        sessionOverride: null
-      });
+      void pushStateToCloud(
+        snap.childrenData,
+        snap.savedParentPin,
+        snap.childPins,
+        snap.timers,
+        snap.pendingScoreProposal,
+        snap.lastDynamicScoreWeekId,
+        {
+          releaseSession: true,
+          clientSessionIdOverride: prevSessionId,
+          sessionOverride: null
+        }
+      );
     }
+  };
+
+  const handleSaveChildPin = (childKey: ChildKey, newPin: string): boolean => {
+    if (!requireParentMode('자녀 비밀번호 변경')) return false;
+    const cleanPin = newPin.trim();
+    if (cleanPin.length < 4) {
+      showToast('자녀 비밀번호는 4자리 이상 입력해주세요.', 'warning');
+      return false;
+    }
+    setChildPins((prev) => ({
+      ...prev,
+      [childKey]: cleanPin
+    }));
+    showToast(`${CHILDREN_CONFIG[childKey].name} 비밀번호가 변경되었습니다.`, 'success');
+    return true;
+  };
+
+  const handleApproveScoreProposal = () => {
+    if (!requireParentMode('자동 배점 적용')) return;
+    if (!pendingScoreProposal) return;
+
+    const proposal = pendingScoreProposal;
+    setChildrenData((prev) => {
+      const applyForChild = (childKey: ChildKey): ChildData => {
+        const childObj = prev[childKey];
+        const frozenWeeks = freezeEarnedScoresForChild(childKey, childObj);
+        const cfg = CHILDREN_CONFIG[childKey];
+        const nextItemScores: Record<string, number> = { ...(childObj.itemScores || {}) };
+        const proposedStudy = proposal.children[childKey]?.proposedScores || {};
+
+        cfg.studyItems.forEach((item) => {
+          if (typeof proposedStudy[item.id] === 'number') {
+            nextItemScores[item.id] = sanitizeItemScore(
+              proposedStudy[item.id],
+              childObj.itemScores?.[item.id] ?? item.score
+            );
+          }
+        });
+        cfg.habitItems.forEach((item) => {
+          nextItemScores[item.id] = childObj.itemScores?.[item.id] ?? item.score;
+        });
+
+        return {
+          ...childObj,
+          weeks: frozenWeeks,
+          itemScores: nextItemScores
+        };
+      };
+
+      return {
+        suhyun: applyForChild('suhyun'),
+        dahyun: applyForChild('dahyun')
+      };
+    });
+
+    setLastDynamicScoreWeekId(proposal.weekId);
+    setPendingScoreProposal(null);
+    showToast(
+      '새 주간 개별 학습과목 배점이 반영되었습니다. (기존 획득 점수 및 생활습관 배점 유지)',
+      'success'
+    );
+  };
+
+  const handleRejectScoreProposal = () => {
+    if (!requireParentMode('자동 배점 보류')) return;
+    if (!pendingScoreProposal) return;
+
+    setLastDynamicScoreWeekId(pendingScoreProposal.weekId);
+    setPendingScoreProposal(null);
+    showToast('배점 자동 변경을 적용하지 않고 기존 배점을 유지합니다.', 'info');
+  };
+
+  const handlePreviewDynamicScoring = () => {
+    if (!requireParentMode('자동 배점 계산 미리보기')) return;
+    const targetWeekId = getWeekIdForTimestamp();
+    const proposal = generateWeeklyDynamicScoreProposal(childrenData, targetWeekId, {
+      requirePastData: false
+    });
+    if (!proposal) {
+      showToast('배점 제안을 생성할 수 없습니다.', 'warning');
+      return;
+    }
+    setPendingScoreProposal(proposal);
   };
 
   const openLoginModal = () => {
@@ -980,11 +1507,15 @@ export default function App() {
     showToast('부모님 비밀번호가 변경되었습니다.', 'success');
   };
 
-  // Board Cell Toggle
+  // Board Cell Toggle (writes into selectedWeekId)
   const handleCellToggle = (item: EvaluationItem, dayKey: DayKey, dayLabel: string) => {
+    if (item.scoringType === 'READING_AUDIO') {
+      showToast('독서 항목은 우측 점수 선택(0/5/10점) 메뉴에서 채점해주세요.', 'info');
+      return;
+    }
     if (!requireParentMode('점수 채점 및 변경')) return;
 
-    const currentStatus: CheckStatus = currentData.checks?.[item.id]?.[dayKey] || 'NONE';
+    const currentStatus: CheckStatus = currentWeekRecord.checks?.[item.id]?.[dayKey] || 'NONE';
     let nextStatus: CheckStatus = 'NONE';
 
     if (stampMode === 'WEEKDAY') {
@@ -999,10 +1530,11 @@ export default function App() {
 
     setChildrenData((prev) => {
       const childObj = prev[activeChild];
+      const baseWeek = getWeeklyRecord(activeChild, childObj, selectedWeekId);
       const updatedChecks = {
-        ...(childObj.checks || {}),
+        ...(baseWeek.checks || {}),
         [item.id]: {
-          ...(childObj.checks?.[item.id] || {
+          ...(baseWeek.checks?.[item.id] || {
             MON: 'NONE',
             TUE: 'NONE',
             WED: 'NONE',
@@ -1013,9 +1545,9 @@ export default function App() {
         }
       };
 
-      const existingEarned = childObj.earnedScores?.[item.id]?.[dayKey];
-      const existingRow = { ...(childObj.earnedScores?.[item.id] || {}) };
-      const updatedEarnedScores = { ...(childObj.earnedScores || {}) };
+      const existingEarned = baseWeek.earnedScores?.[item.id]?.[dayKey];
+      const existingRow = { ...(baseWeek.earnedScores?.[item.id] || {}) };
+      const updatedEarnedScores = { ...(baseWeek.earnedScores || {}) };
       let awardedScore = item.score;
 
       if (nextStatus === 'NONE') {
@@ -1032,7 +1564,7 @@ export default function App() {
         updatedEarnedScores[item.id] = existingRow;
       }
 
-      const updatedClothesSub = { ...(childObj.clothesSubChecks || {}) };
+      const updatedClothesSub = { ...(baseWeek.clothesSubChecks || {}) };
       if (item.id === 'hb_clothes_all') {
         const allDone = nextStatus !== 'NONE';
         updatedClothesSub[dayKey] = CLOTHES_SUB_ITEMS.reduce((acc, sub) => {
@@ -1041,7 +1573,7 @@ export default function App() {
         }, {} as Record<string, boolean>);
       }
 
-      let updatedLogs: YoutubeLog[] = [...(childObj.youtubeLogs || [])];
+      let updatedLogs: YoutubeLog[] = [...(baseWeek.youtubeLogs || [])];
       const nowStr = new Date().toLocaleTimeString('ko-KR', {
         hour: '2-digit',
         minute: '2-digit'
@@ -1078,23 +1610,349 @@ export default function App() {
         ];
       }
 
+      const nextWeek = {
+        ...baseWeek,
+        checks: updatedChecks,
+        earnedScores: updatedEarnedScores,
+        clothesSubChecks: updatedClothesSub,
+        youtubeLogs: updatedLogs
+      };
+
       return {
         ...prev,
         [activeChild]: {
           ...childObj,
-          checks: updatedChecks,
-          earnedScores: updatedEarnedScores,
-          clothesSubChecks: updatedClothesSub,
-          youtubeLogs: updatedLogs
+          weeks: {
+            ...(childObj.weeks || {}),
+            [selectedWeekId]: nextWeek
+          }
         }
       };
     });
   };
 
+  // Reading Score Dropdown (Parent only: '' | '0' | '5' | '10')
+  const handleReadingScoreChange = (
+    dayKey: DayKey,
+    dayLabel: string,
+    scoreValue: '' | '0' | '5' | '10'
+  ) => {
+    if (!requireParentMode('독서 점수 채점')) return;
+    const score = scoreValue === '' ? null : Number(scoreValue);
+
+    setChildrenData((prev) => {
+      const childObj = prev[activeChild];
+      const baseWeek = getWeeklyRecord(activeChild, childObj, selectedWeekId);
+      const nextReadingRow = { ...(baseWeek.earnedScores?.hb_reading || {}) };
+      const updatedEarnedScores = { ...(baseWeek.earnedScores || {}) };
+
+      if (score === null) {
+        delete nextReadingRow[dayKey];
+        if (Object.keys(nextReadingRow).length > 0) {
+          updatedEarnedScores.hb_reading = nextReadingRow;
+        } else {
+          delete updatedEarnedScores.hb_reading;
+        }
+      } else {
+        nextReadingRow[dayKey] = score;
+        updatedEarnedScores.hb_reading = nextReadingRow;
+      }
+
+      const nextWeek = {
+        ...baseWeek,
+        checks: {
+          ...(baseWeek.checks || {}),
+          hb_reading: {
+            ...(baseWeek.checks?.hb_reading || {
+              MON: 'NONE',
+              TUE: 'NONE',
+              WED: 'NONE',
+              THU: 'NONE',
+              FRI: 'NONE'
+            }),
+            [dayKey]: score === null ? ('NONE' as CheckStatus) : ('WEEKDAY' as CheckStatus)
+          }
+        },
+        earnedScores: updatedEarnedScores
+      };
+
+      return {
+        ...prev,
+        [activeChild]: {
+          ...childObj,
+          weeks: {
+            ...(childObj.weeks || {}),
+            [selectedWeekId]: nextWeek
+          }
+        }
+      };
+    });
+
+    showToast(
+      score === null
+        ? `${dayLabel}요일 독서 채점이 초기화되었습니다.`
+        : `${dayLabel}요일 독서 점수가 ${score}점으로 채점되었습니다.`,
+      score === null ? 'info' : 'success'
+    );
+  };
+
+  // Voice recording toggle for reading journal
+  const handleToggleReadingRecord = async (dayKey: DayKey, dayLabel: string) => {
+    if (isUploadingAudio) return;
+
+    const currentTarget = recordingTargetRef.current;
+    if (currentTarget) {
+      if (
+        currentTarget.childKey === activeChild &&
+        currentTarget.weekId === selectedWeekId &&
+        currentTarget.dayKey === dayKey
+      ) {
+        if (recordingTimerRef.current) {
+          clearInterval(recordingTimerRef.current);
+          recordingTimerRef.current = null;
+        }
+        cancelRecordingOnStopRef.current = false;
+        try {
+          if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+            mediaRecorderRef.current.stop();
+          }
+        } catch (err) {
+          console.error('Failed to stop recorder', err);
+          cleanupMediaAndAudio(true);
+        }
+        return;
+      }
+      showToast('진행 중인 다른 요일의 녹음을 먼저 종료해주세요.', 'warning');
+      return;
+    }
+
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.getUserMedia) {
+      showToast('현재 브라우저에서는 마이크 녹음 기능을 사용할 수 없습니다.', 'warning');
+      return;
+    }
+
+    // Stop active playback before recording
+    if (audioPlayerRef.current) {
+      try {
+        audioPlayerRef.current.pause();
+      } catch {
+        // ignore
+      }
+      audioPlayerRef.current = null;
+      setPlayingAudioId(null);
+    }
+
+    const targetChild = activeChild;
+    const targetWeekId = selectedWeekId;
+    const targetDayKey = dayKey;
+    const authRoleSnapshot = authRole || 'parent';
+    const pinSnapshot = isParentModeRef.current
+      ? savedParentPin
+      : activeAuthPinRef.current || childPins[targetChild];
+
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mimeType = pickSupportedAudioMimeType();
+      const recorder = mimeType
+        ? new MediaRecorder(stream, { mimeType })
+        : new MediaRecorder(stream);
+
+      mediaStreamRef.current = stream;
+      mediaRecorderRef.current = recorder;
+      audioChunksRef.current = [];
+      cancelRecordingOnStopRef.current = false;
+      recordingStartMsRef.current = Date.now();
+      setRecordingTarget({ childKey: targetChild, weekId: targetWeekId, dayKey: targetDayKey });
+      setRecordingElapsedSec(0);
+
+      recorder.ondataavailable = (ev) => {
+        if (ev.data && ev.data.size > 0) {
+          audioChunksRef.current.push(ev.data);
+        }
+      };
+
+      recorder.onstop = async () => {
+        if (recordingTimerRef.current) {
+          clearInterval(recordingTimerRef.current);
+          recordingTimerRef.current = null;
+        }
+        stream.getTracks().forEach((track) => track.stop());
+        if (mediaStreamRef.current === stream) {
+          mediaStreamRef.current = null;
+        }
+        if (mediaRecorderRef.current === recorder) {
+          mediaRecorderRef.current = null;
+        }
+        setRecordingTarget(null);
+        const durationSec = Math.max(
+          1,
+          Math.round((Date.now() - recordingStartMsRef.current) / 1000)
+        );
+        setRecordingElapsedSec(0);
+
+        if (cancelRecordingOnStopRef.current) {
+          audioChunksRef.current = [];
+          return;
+        }
+
+        const chunks = audioChunksRef.current;
+        audioChunksRef.current = [];
+        if (chunks.length === 0) {
+          showToast('녹음된 음성이 없습니다. 다시 시도해주세요.', 'warning');
+          return;
+        }
+
+        const actualMime = recorder.mimeType || mimeType || 'audio/webm';
+        const blob = new Blob(chunks, { type: actualMime });
+
+        setIsUploadingAudio(true);
+        try {
+          const dataBase64 = await blobToBase64(blob);
+          const audioId = `rec_${targetChild}_${targetWeekId}_${targetDayKey}_${Date.now()}`;
+          const res = await uploadReadingAudio({
+            childKey: targetChild,
+            weekId: targetWeekId,
+            dayKey: targetDayKey,
+            audioId,
+            mimeType: actualMime,
+            dataBase64,
+            durationSec,
+            authRole: authRoleSnapshot,
+            pin: pinSnapshot,
+            clientSessionId: myParentSessionIdRef.current
+          });
+
+          if (res.sessionReplaced) {
+            forceLogoutDueToOtherDevice();
+            return;
+          }
+
+          if (!res.ok || !res.recording) {
+            showToast(res.error || '독후감 녹음 저장에 실패했습니다.', 'warning');
+            return;
+          }
+
+          const savedMeta = res.recording;
+          if (res.updatedAt) {
+            lastUpdatedAtRef.current = Math.max(lastUpdatedAtRef.current, res.updatedAt);
+          }
+
+          setChildrenData((prev) => {
+            const childObj = prev[targetChild];
+            const baseWeek = getWeeklyRecord(targetChild, childObj, targetWeekId);
+            const nextWeek = {
+              ...baseWeek,
+              readingRecordings: {
+                ...(baseWeek.readingRecordings || {}),
+                [targetDayKey]: savedMeta
+              }
+            };
+            return {
+              ...prev,
+              [targetChild]: {
+                ...childObj,
+                weeks: {
+                  ...(childObj.weeks || {}),
+                  [targetWeekId]: nextWeek
+                }
+              }
+            };
+          });
+
+          showToast(`${dayLabel}요일 독후감 녹음이 저장되었습니다. (${durationSec}초)`, 'success');
+        } catch (err) {
+          console.error('Failed to process recording upload', err);
+          showToast('녹음 파일 처리 중 오류가 발생했습니다.', 'warning');
+        } finally {
+          setIsUploadingAudio(false);
+        }
+      };
+
+      recorder.start(500);
+      recordingTimerRef.current = setInterval(() => {
+        const elapsed = Math.floor((Date.now() - recordingStartMsRef.current) / 1000);
+        setRecordingElapsedSec(elapsed);
+        if (elapsed >= 180 && mediaRecorderRef.current?.state === 'recording') {
+          showToast('최대 녹음 시간(3분)에 도달해 자동으로 저장합니다.', 'info');
+          mediaRecorderRef.current.stop();
+        }
+      }, 500);
+
+      showToast(`${dayLabel}요일 독후감 녹음을 시작합니다. 완료되면 버튼을 한 번 더 누르세요.`, 'info');
+    } catch (err) {
+      console.error('Microphone access error', err);
+      cleanupMediaAndAudio(true);
+      showToast('마이크 접근 권한을 허용해주세요.', 'warning');
+    }
+  };
+
+  const handleToggleReadingPlay = async (dayKey: DayKey) => {
+    const audioId = currentWeekRecord.readingRecordings?.[dayKey]?.audioId;
+    if (!audioId) {
+      showToast('저장된 독후감 녹음 파일이 없습니다.', 'warning');
+      return;
+    }
+    if (playingAudioId === audioId) {
+      if (audioPlayerRef.current) {
+        audioPlayerRef.current.pause();
+        audioPlayerRef.current = null;
+      }
+      if (audioObjectUrlRef.current) {
+        URL.revokeObjectURL(audioObjectUrlRef.current);
+        audioObjectUrlRef.current = null;
+      }
+      setPlayingAudioId(null);
+      return;
+    }
+
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+      audioPlayerRef.current = null;
+    }
+    if (audioObjectUrlRef.current) {
+      URL.revokeObjectURL(audioObjectUrlRef.current);
+      audioObjectUrlRef.current = null;
+    }
+
+    const stored = await fetchReadingAudio(audioId);
+    if (!stored || !stored.dataBase64) {
+      showToast('녹음 파일을 불러올 수 없습니다.', 'warning');
+      return;
+    }
+
+    try {
+      const url = base64ToBlobUrl(stored.dataBase64, stored.mimeType || 'audio/webm');
+      audioObjectUrlRef.current = url;
+      const audio = new Audio(url);
+      audioPlayerRef.current = audio;
+      setPlayingAudioId(audioId);
+
+      audio.onended = () => {
+        if (audioPlayerRef.current === audio) {
+          audioPlayerRef.current = null;
+          setPlayingAudioId(null);
+        }
+      };
+      audio.onerror = () => {
+        if (audioPlayerRef.current === audio) {
+          audioPlayerRef.current = null;
+          setPlayingAudioId(null);
+        }
+        showToast('녹음 음성을 재생할 수 없습니다.', 'warning');
+      };
+
+      await audio.play();
+    } catch (err) {
+      console.error('Audio play failed', err);
+      setPlayingAudioId(null);
+      showToast('음성 재생에 실패했습니다.', 'warning');
+    }
+  };
+
   const handleToggleClothesSubItem = (dayKey: DayKey, dayLabel: string, subName: string) => {
     if (!requireParentMode('옷 정리 세부 항목 체크')) return;
 
-    const currentDaySubs = currentData.clothesSubChecks?.[dayKey] || {};
+    const currentDaySubs = currentWeekRecord.clothesSubChecks?.[dayKey] || {};
     const nextVal = !currentDaySubs[subName];
     const updatedDaySubs = {
       ...CLOTHES_SUB_ITEMS.reduce((acc, s) => {
@@ -1108,7 +1966,7 @@ export default function App() {
     const clothesItem =
       currentConfig.habitItems.find((i) => i.id === 'hb_clothes_all') ||
       currentConfig.habitItems[0];
-    const prevMainStatus = currentData.checks?.hb_clothes_all?.[dayKey] || 'NONE';
+    const prevMainStatus = currentWeekRecord.checks?.hb_clothes_all?.[dayKey] || 'NONE';
 
     let nextMainStatus: CheckStatus = 'NONE';
     if (isAll8Completed) {
@@ -1117,9 +1975,10 @@ export default function App() {
 
     setChildrenData((prev) => {
       const childObj = prev[activeChild];
-      const existingEarned = childObj.earnedScores?.hb_clothes_all?.[dayKey];
-      const nextClothesEarnedRow = { ...(childObj.earnedScores?.hb_clothes_all || {}) };
-      const updatedEarnedScores = { ...(childObj.earnedScores || {}) };
+      const baseWeek = getWeeklyRecord(activeChild, childObj, selectedWeekId);
+      const existingEarned = baseWeek.earnedScores?.hb_clothes_all?.[dayKey];
+      const nextClothesEarnedRow = { ...(baseWeek.earnedScores?.hb_clothes_all || {}) };
+      const updatedEarnedScores = { ...(baseWeek.earnedScores || {}) };
 
       if (isAll8Completed) {
         nextClothesEarnedRow[dayKey] =
@@ -1134,27 +1993,35 @@ export default function App() {
         }
       }
 
+      const nextWeek = {
+        ...baseWeek,
+        clothesSubChecks: {
+          ...(baseWeek.clothesSubChecks || {}),
+          [dayKey]: updatedDaySubs
+        },
+        earnedScores: updatedEarnedScores,
+        checks: {
+          ...(baseWeek.checks || {}),
+          hb_clothes_all: {
+            ...(baseWeek.checks?.hb_clothes_all || {
+              MON: 'NONE',
+              TUE: 'NONE',
+              WED: 'NONE',
+              THU: 'NONE',
+              FRI: 'NONE'
+            }),
+            [dayKey]: nextMainStatus
+          }
+        }
+      };
+
       return {
         ...prev,
         [activeChild]: {
           ...childObj,
-          clothesSubChecks: {
-            ...(childObj.clothesSubChecks || {}),
-            [dayKey]: updatedDaySubs
-          },
-          earnedScores: updatedEarnedScores,
-          checks: {
-            ...(childObj.checks || {}),
-            hb_clothes_all: {
-              ...(childObj.checks?.hb_clothes_all || {
-                MON: 'NONE',
-                TUE: 'NONE',
-                WED: 'NONE',
-                THU: 'NONE',
-                FRI: 'NONE'
-              }),
-              [dayKey]: nextMainStatus
-            }
+          weeks: {
+            ...(childObj.weeks || {}),
+            [selectedWeekId]: nextWeek
           }
         }
       };
@@ -1177,11 +2044,13 @@ export default function App() {
 
     setChildrenData((prev) => {
       const childObj = prev[activeChild];
-      const updatedChecks = { ...(childObj.checks || {}) };
-      const updatedEarnedScores = { ...(childObj.earnedScores || {}) };
+      const baseWeek = getWeeklyRecord(activeChild, childObj, selectedWeekId);
+      const updatedChecks = { ...(baseWeek.checks || {}) };
+      const updatedEarnedScores = { ...(baseWeek.earnedScores || {}) };
 
       allItems.forEach((item) => {
-        const prevStatus: CheckStatus = childObj.checks?.[item.id]?.[dayKey] || 'NONE';
+        if (item.scoringType === 'READING_AUDIO') return;
+        const prevStatus: CheckStatus = baseWeek.checks?.[item.id]?.[dayKey] || 'NONE';
         updatedChecks[item.id] = {
           ...(updatedChecks[item.id] || {
             MON: 'NONE',
@@ -1193,14 +2062,14 @@ export default function App() {
           [dayKey]: targetStatus
         };
 
-        const existingEarned = childObj.earnedScores?.[item.id]?.[dayKey];
+        const existingEarned = baseWeek.earnedScores?.[item.id]?.[dayKey];
         const nextRow = { ...(updatedEarnedScores[item.id] || {}) };
         nextRow[dayKey] = prevStatus === 'NONE' ? item.score : (existingEarned ?? item.score);
         updatedEarnedScores[item.id] = nextRow;
       });
 
       const updatedClothesSub = {
-        ...(childObj.clothesSubChecks || {}),
+        ...(baseWeek.clothesSubChecks || {}),
         [dayKey]: CLOTHES_SUB_ITEMS.reduce((acc, sub) => {
           acc[sub] = true;
           return acc;
@@ -1211,20 +2080,26 @@ export default function App() {
         ...prev,
         [activeChild]: {
           ...childObj,
-          checks: updatedChecks,
-          earnedScores: updatedEarnedScores,
-          clothesSubChecks: updatedClothesSub
+          weeks: {
+            ...(childObj.weeks || {}),
+            [selectedWeekId]: {
+              ...baseWeek,
+              checks: updatedChecks,
+              earnedScores: updatedEarnedScores,
+              clothesSubChecks: updatedClothesSub
+            }
+          }
         }
       };
     });
 
     showToast(
-      `${dayLabel}요일 전체 항목이 '${targetStatus === 'WEEKDAY' ? '평일 완료' : '주말 보충'}' 처리되었습니다.`,
+      `${dayLabel}요일 항목(독서 제외)이 '${targetStatus === 'WEEKDAY' ? '평일 완료' : '주말 보충'}' 처리되었습니다.`,
       'success'
     );
   };
 
-  // YouTube Deduction (Parent Only)
+  // YouTube Deduction (Parent Only, writes to selectedWeekId)
   const deductYoutubeForChild = (
     targetChildKey: ChildKey,
     minutesToDeduct: string | number,
@@ -1239,8 +2114,9 @@ export default function App() {
       return false;
     }
 
+    const targetWeek = selectedWeekId;
     const latestChildData = latestSyncSnapshotRef.current.childrenData[targetChildKey];
-    const targetSummary = computeChildScoreSummary(targetChildKey, latestChildData);
+    const targetSummary = computeChildScoreSummary(targetChildKey, latestChildData, targetWeek);
     const targetName = CHILDREN_CONFIG[targetChildKey].name;
 
     if (targetSummary.remainingMinutes <= 0) {
@@ -1257,7 +2133,8 @@ export default function App() {
 
     setChildrenData((prev) => {
       const childObj = prev[targetChildKey];
-      const nextUsed = (childObj.usedYoutubeMinutes || 0) + actualDeduct;
+      const baseWeek = getWeeklyRecord(targetChildKey, childObj, targetWeek);
+      const nextUsed = (baseWeek.usedYoutubeMinutes || 0) + actualDeduct;
       const newLog: YoutubeLog = {
         id: `watch-${targetChildKey}-${Date.now()}`,
         type: 'WATCH',
@@ -1270,8 +2147,14 @@ export default function App() {
         ...prev,
         [targetChildKey]: {
           ...childObj,
-          usedYoutubeMinutes: nextUsed,
-          youtubeLogs: [newLog, ...(childObj.youtubeLogs || [])]
+          weeks: {
+            ...(childObj.weeks || {}),
+            [targetWeek]: {
+              ...baseWeek,
+              usedYoutubeMinutes: nextUsed,
+              youtubeLogs: [newLog, ...(baseWeek.youtubeLogs || [])]
+            }
+          }
         }
       };
     });
@@ -1526,19 +2409,26 @@ export default function App() {
   const handleUndoWatchLog = (logId: string) => {
     if (!requireParentMode('기록 취소(복구)')) return;
 
-    const targetLog = (currentData.youtubeLogs || []).find((l) => l.id === logId);
+    const targetLog = (currentWeekRecord.youtubeLogs || []).find((l) => l.id === logId);
     if (!targetLog) return;
 
     if (targetLog.type === 'WATCH') {
       const restoreMinutes = Math.abs(targetLog.minutes);
       setChildrenData((prev) => {
         const childObj = prev[activeChild];
+        const baseWeek = getWeeklyRecord(activeChild, childObj, selectedWeekId);
         return {
           ...prev,
           [activeChild]: {
             ...childObj,
-            usedYoutubeMinutes: Math.max(0, (childObj.usedYoutubeMinutes || 0) - restoreMinutes),
-            youtubeLogs: (childObj.youtubeLogs || []).filter((l) => l.id !== logId)
+            weeks: {
+              ...(childObj.weeks || {}),
+              [selectedWeekId]: {
+                ...baseWeek,
+                usedYoutubeMinutes: Math.max(0, (baseWeek.usedYoutubeMinutes || 0) - restoreMinutes),
+                youtubeLogs: (baseWeek.youtubeLogs || []).filter((l) => l.id !== logId)
+              }
+            }
           }
         };
       });
@@ -1547,7 +2437,8 @@ export default function App() {
       const { itemId, dayKey } = targetLog.relatedItem;
       setChildrenData((prev) => {
         const childObj = prev[activeChild];
-        const updatedEarnedScores = { ...(childObj.earnedScores || {}) };
+        const baseWeek = getWeeklyRecord(activeChild, childObj, selectedWeekId);
+        const updatedEarnedScores = { ...(baseWeek.earnedScores || {}) };
         if (updatedEarnedScores[itemId]) {
           const nextRow = { ...updatedEarnedScores[itemId] };
           delete nextRow[dayKey];
@@ -1562,21 +2453,27 @@ export default function App() {
           ...prev,
           [activeChild]: {
             ...childObj,
-            checks: {
-              ...(childObj.checks || {}),
-              [itemId]: {
-                ...(childObj.checks?.[itemId] || {
-                  MON: 'NONE',
-                  TUE: 'NONE',
-                  WED: 'NONE',
-                  THU: 'NONE',
-                  FRI: 'NONE'
-                }),
-                [dayKey]: 'NONE'
+            weeks: {
+              ...(childObj.weeks || {}),
+              [selectedWeekId]: {
+                ...baseWeek,
+                checks: {
+                  ...(baseWeek.checks || {}),
+                  [itemId]: {
+                    ...(baseWeek.checks?.[itemId] || {
+                      MON: 'NONE',
+                      TUE: 'NONE',
+                      WED: 'NONE',
+                      THU: 'NONE',
+                      FRI: 'NONE'
+                    }),
+                    [dayKey]: 'NONE'
+                  }
+                },
+                earnedScores: updatedEarnedScores,
+                youtubeLogs: (baseWeek.youtubeLogs || []).filter((l) => l.id !== logId)
               }
-            },
-            earnedScores: updatedEarnedScores,
-            youtubeLogs: (childObj.youtubeLogs || []).filter((l) => l.id !== logId)
+            }
           }
         };
       });
@@ -1649,45 +2546,31 @@ export default function App() {
   };
 
   const handleResetWeeklyBoard = () => {
-    if (!requireParentMode('새 주차 초기화')) return;
+    if (!requireParentMode('선택 주간 초기화')) return;
 
     setConfirmDialog({
-      title: '새 한 주 시작 (주간 보드 초기화)',
-      message: `${currentConfig.name}이의 이번 주 채점 기록과 주말 유튜브 시청 기록을 0으로 초기화하시겠습니까? (엄마·아빠 칭찬스티커 누적 개수는 그대로 유지됩니다.)`,
-      confirmText: '새 주차 시작',
+      title: '선택한 주간 기록 초기화',
+      message: `${currentConfig.name}이의 [${formatWeekRangeLabel(selectedWeekId)}] 주간 채점 기록과 유튜브 시청 기록을 0으로 초기화하시겠습니까? (다른 주차 누적 데이터와 칭찬스티커는 그대로 유지됩니다.)`,
+      confirmText: '이 주 초기화',
       onConfirm: () => {
-        const emptyChecks: Record<string, Record<DayKey, CheckStatus>> = {};
-        allItems.forEach((item) => {
-          emptyChecks[item.id] = {
-            MON: 'NONE',
-            TUE: 'NONE',
-            WED: 'NONE',
-            THU: 'NONE',
-            FRI: 'NONE'
+        setChildrenData((prev) => {
+          const childObj = prev[activeChild];
+          return {
+            ...prev,
+            [activeChild]: {
+              ...childObj,
+              weeks: {
+                ...(childObj.weeks || {}),
+                [selectedWeekId]: createEmptyWeeklyRecord(activeChild, selectedWeekId)
+              }
+            }
           };
         });
-
-        const emptySubChecks = {} as Record<DayKey, Record<string, boolean>>;
-        DAYS.forEach(({ key }) => {
-          emptySubChecks[key] = CLOTHES_SUB_ITEMS.reduce((acc, sub) => {
-            acc[sub] = false;
-            return acc;
-          }, {} as Record<string, boolean>);
-        });
-
-        setChildrenData((prev) => ({
-          ...prev,
-          [activeChild]: {
-            ...prev[activeChild],
-            checks: emptyChecks,
-            earnedScores: {},
-            clothesSubChecks: emptySubChecks,
-            usedYoutubeMinutes: 0,
-            youtubeLogs: []
-          }
-        }));
         setConfirmDialog(null);
-        showToast(`${currentConfig.name}이의 새로운 주간 채점표가 초기화되었습니다.`, 'success');
+        showToast(
+          `${currentConfig.name}이의 [${formatWeekRangeLabel(selectedWeekId)}] 기록이 초기화되었습니다.`,
+          'success'
+        );
       }
     });
   };
@@ -1698,7 +2581,7 @@ export default function App() {
     setChildrenData((prev) => {
       const updateChild = (childKey: ChildKey): ChildData => {
         const childObj = prev[childKey];
-        const frozenEarned = freezeEarnedScoresForChild(childKey, childObj);
+        const frozenWeeks = freezeEarnedScoresForChild(childKey, childObj);
         const cfg = CHILDREN_CONFIG[childKey];
         const nextItemScores: Record<string, number> = {};
 
@@ -1711,7 +2594,7 @@ export default function App() {
 
         return {
           ...childObj,
-          earnedScores: frozenEarned,
+          weeks: frozenWeeks,
           itemScores: nextItemScores
         };
       };
@@ -1722,7 +2605,7 @@ export default function App() {
       };
     });
 
-    showToast('배점표가 저장되었습니다. 기존 획득 점수는 이전 배점 그대로 유지됩니다.', 'success');
+    showToast('배점표가 저장되었습니다. 기존 모든 주차의 획득 점수는 이전 배점 그대로 유지됩니다.', 'success');
   };
 
   const handleResetStickerBoard = () => {
@@ -1753,63 +2636,88 @@ export default function App() {
     setConfirmDialog({
       title: '데이터 초기화 (칭찬스티커 제외)',
       message:
-        '수현이와 다현이의 주간 채점 기록, 옷 정리 점검, 주말 유튜브 시청 시간 및 타이머를 모두 0으로 초기화하시겠습니까? (엄마·아빠 칭찬스티커 누적 개수와 발급 내역은 유지됩니다.)',
+        '수현이와 다현이의 모든 주차 채점 기록, 독서 녹음 기록, 옷 정리 점검, 유튜브 시청 시간 및 타이머를 초기화하시겠습니까? (엄마·아빠 칭찬스티커 누적 개수와 발급 내역은 유지됩니다.)',
       confirmText: '데이터 초기화 실행',
       onConfirm: () => {
-        const buildEmptyChildWeek = (childKey: ChildKey, prevChildObj: ChildData): ChildData => {
-          const cfg = CHILDREN_CONFIG[childKey];
-          const items = [...cfg.studyItems, ...cfg.habitItems];
-          const emptyChecks: Record<string, Record<DayKey, CheckStatus>> = {};
-          items.forEach((item) => {
-            emptyChecks[item.id] = {
-              MON: 'NONE',
-              TUE: 'NONE',
-              WED: 'NONE',
-              THU: 'NONE',
-              FRI: 'NONE'
-            };
-          });
-
-          const emptySubChecks = {} as Record<DayKey, Record<string, boolean>>;
-          DAYS.forEach(({ key }) => {
-            emptySubChecks[key] = CLOTHES_SUB_ITEMS.reduce((acc, sub) => {
-              acc[sub] = false;
-              return acc;
-            }, {} as Record<string, boolean>);
-          });
-
-          return {
-            ...prevChildObj,
-            checks: emptyChecks,
-            earnedScores: {},
-            clothesSubChecks: emptySubChecks,
-            usedYoutubeMinutes: 0,
-            youtubeLogs: []
-          };
-        };
-
+        const currentWeekId = getWeekIdForTimestamp();
         setChildrenData((prev) => ({
-          suhyun: buildEmptyChildWeek('suhyun', prev.suhyun),
-          dahyun: buildEmptyChildWeek('dahyun', prev.dahyun)
+          suhyun: {
+            ...prev.suhyun,
+            weeks: {
+              [currentWeekId]: createEmptyWeeklyRecord('suhyun', currentWeekId)
+            }
+          },
+          dahyun: {
+            ...prev.dahyun,
+            weeks: {
+              [currentWeekId]: createEmptyWeeklyRecord('dahyun', currentWeekId)
+            }
+          }
         }));
 
         setTimers({
           suhyun: createDefaultChildTimer(DEFAULT_TIMER_MINUTES),
           dahyun: createDefaultChildTimer(DEFAULT_TIMER_MINUTES)
         });
+        setSelectedWeekId(currentWeekId);
+        setPendingScoreProposal(null);
+        setLastDynamicScoreWeekId(null);
 
         setConfirmDialog(null);
-        showToast('칭찬스티커를 제외한 주간 학습·습관 및 유튜브 데이터가 초기화되었습니다.', 'success');
+        showToast('칭찬스티커를 제외한 주간 누적 학습·습관 및 유튜브 데이터가 초기화되었습니다.', 'success');
       }
     });
   };
 
   const isSuhyun = activeChild === 'suhyun';
-  const currentTabMeta = TAB_ITEMS.find((t) => t.key === activeTab) || TAB_ITEMS[0];
+  const visibleTabs = useMemo(
+    () => (authRole === 'parent' ? TAB_ITEMS : TAB_ITEMS.filter((t) => t.key !== 'settings')),
+    [authRole]
+  );
+  const currentTabMeta = visibleTabs.find((t) => t.key === activeTab) || visibleTabs[0];
   const youtubeRemainingRatio =
     scoreSummary.totalEarnedMinutes > 0
       ? Math.min(100, (scoreSummary.remainingMinutes / scoreSummary.totalEarnedMinutes) * 100)
       : 0;
+
+  const availableWeekIds = useMemo(() => {
+    const keys = new Set<string>([
+      realCurrentWeekId,
+      selectedWeekId,
+      ...Object.keys(childrenData.suhyun.weeks || {}),
+      ...Object.keys(childrenData.dahyun.weeks || {})
+    ]);
+    return Array.from(keys).sort((a, b) => a.localeCompare(b));
+  }, [childrenData, realCurrentWeekId, selectedWeekId]);
+
+  const handleSelectWeek = (nextWeekId: string) => {
+    if (nextWeekId === selectedWeekId) return;
+    if (recordingTargetRef.current) {
+      showToast('진행 중인 녹음을 먼저 종료해주세요.', 'warning');
+      return;
+    }
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+      audioPlayerRef.current = null;
+      setPlayingAudioId(null);
+    }
+    setSelectedWeekId(nextWeekId);
+  };
+
+  const handleSelectChild = (nextChild: ChildKey) => {
+    if (authRole === 'suhyun' || authRole === 'dahyun') return;
+    if (nextChild === activeChild) return;
+    if (recordingTargetRef.current) {
+      showToast('진행 중인 녹음을 먼저 종료해주세요.', 'warning');
+      return;
+    }
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+      audioPlayerRef.current = null;
+      setPlayingAudioId(null);
+    }
+    setActiveChild(nextChild);
+  };
 
   const syncBadgeMeta = (() => {
     switch (syncStatus) {
@@ -1850,6 +2758,35 @@ export default function App() {
   })();
   const SyncBadgeIcon = syncBadgeMeta.Icon;
 
+  if (authRole === null) {
+    return (
+      <>
+        {toastMessage && (
+          <div
+            role="status"
+            aria-live="polite"
+            className="fixed bottom-5 right-5 z-50 max-w-sm bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl border border-slate-800 flex items-center gap-3"
+          >
+            <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+            <span className="text-xs sm:text-sm font-medium leading-snug">{toastMessage.msg}</span>
+          </div>
+        )}
+        <LoginScreen
+          onLogin={async (role, pin) => {
+            const res = await handleAuthLogin(role, pin);
+            return res.ok ? null : (res.error || '비밀번호가 일치하지 않습니다.');
+          }}
+          isLoggingIn={isLoggingIn}
+          isBootstrapping={isBootstrapping}
+          syncStatus={syncStatus}
+          storageType={storageType}
+          activeParentSession={activeParentSession}
+          noticeMessage={loginNotice}
+        />
+      </>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900 flex">
       {/* Toast Notification */}
@@ -1876,60 +2813,66 @@ export default function App() {
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
-          {/* Child Switcher */}
+          {/* Child Switcher (Parent sees both; Child sees own profile only) */}
           <div className="space-y-2">
-            <div className="px-1 text-[11px] font-semibold text-slate-400">자녀 프로필</div>
+            <div className="px-1 text-[11px] font-semibold text-slate-400">
+              {authRole === 'parent' ? '자녀 프로필' : '내 프로필'}
+            </div>
             <div className="space-y-1.5">
-              {(['suhyun', 'dahyun'] as ChildKey[]).map((ck) => {
-                const cfg = CHILDREN_CONFIG[ck];
-                const sum = summaries[ck];
-                const isActive = activeChild === ck;
-                const isBlue = ck === 'suhyun';
-                const running = timers[ck].isRunning;
+              {(authRole === 'parent' ? (['suhyun', 'dahyun'] as ChildKey[]) : [authRole]).map(
+                (ck) => {
+                  const cfg = CHILDREN_CONFIG[ck];
+                  const sum = summaries[ck];
+                  const isActive = activeChild === ck;
+                  const isBlue = ck === 'suhyun';
+                  const running = timers[ck].isRunning;
 
-                return (
-                  <button
-                    key={ck}
-                    type="button"
-                    onClick={() => setActiveChild(ck)}
-                    className={`w-full px-3 py-2.5 rounded-xl border text-left transition-colors flex items-center justify-between gap-2 ${
-                      isActive
-                        ? isBlue
-                          ? 'bg-blue-50/70 border-blue-200 text-slate-900'
-                          : 'bg-rose-50/70 border-rose-200 text-slate-900'
-                        : 'bg-white border-transparent hover:bg-slate-50 text-slate-600'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5 min-w-0">
-                      <span
-                        className={`w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center shrink-0 ${
-                          isActive
-                            ? isBlue
-                              ? 'bg-blue-600 text-white'
-                              : 'bg-rose-600 text-white'
-                            : 'bg-slate-100 text-slate-700'
-                        }`}
-                      >
-                        {cfg.name.slice(0, 1)}
-                      </span>
-                      <div className="min-w-0">
-                        <div className="text-sm font-bold leading-tight truncate">
-                          {cfg.name}{' '}
-                          <span className="text-[11px] font-medium text-slate-400">{cfg.info}</span>
-                        </div>
-                        <div className="text-[11px] text-slate-500 tabular-nums mt-0.5">
-                          {sum.totalScore} / {sum.effectiveWeeklyMaxScore}점
+                  return (
+                    <button
+                      key={ck}
+                      type="button"
+                      onClick={() => handleSelectChild(ck)}
+                      className={`w-full px-3 py-2.5 rounded-xl border text-left transition-colors flex items-center justify-between gap-2 ${
+                        isActive
+                          ? isBlue
+                            ? 'bg-blue-50/70 border-blue-200 text-slate-900'
+                            : 'bg-rose-50/70 border-rose-200 text-slate-900'
+                          : 'bg-white border-transparent hover:bg-slate-50 text-slate-600'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <span
+                          className={`w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center shrink-0 ${
+                            isActive
+                              ? isBlue
+                                ? 'bg-blue-600 text-white'
+                                : 'bg-rose-600 text-white'
+                              : 'bg-slate-100 text-slate-700'
+                          }`}
+                        >
+                          {cfg.name.slice(0, 1)}
+                        </span>
+                        <div className="min-w-0">
+                          <div className="text-sm font-bold leading-tight truncate">
+                            {cfg.name}{' '}
+                            <span className="text-[11px] font-medium text-slate-400">
+                              {cfg.info}
+                            </span>
+                          </div>
+                          <div className="text-[11px] text-slate-500 tabular-nums mt-0.5">
+                            {sum.totalScore} / {sum.effectiveWeeklyMaxScore}점
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    {running && (
-                      <span className="text-[10px] font-semibold text-amber-600 shrink-0">
-                        타이머
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+                      {running && (
+                        <span className="text-[10px] font-semibold text-amber-600 shrink-0">
+                          타이머
+                        </span>
+                      )}
+                    </button>
+                  );
+                }
+              )}
             </div>
           </div>
 
@@ -1937,7 +2880,7 @@ export default function App() {
           <div className="space-y-1.5">
             <div className="px-1 text-[11px] font-semibold text-slate-400">메뉴</div>
             <nav className="space-y-1">
-              {TAB_ITEMS.map((item) => {
+              {visibleTabs.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeTab === item.key;
                 return (
@@ -1997,89 +2940,93 @@ export default function App() {
               </div>
 
               <div className="space-y-2">
-                {(['suhyun', 'dahyun'] as ChildKey[]).map((ck) => {
-                  const cfg = CHILDREN_CONFIG[ck];
-                  const sum = summaries[ck];
-                  const t = timers[ck];
-                  const isRinging = Boolean(t.isAlarmRinging);
-                  const isFinished = t.remainingSeconds === 0;
-                  const exceedsRemaining =
-                    sum.remainingMinutes > 0 && t.targetMinutes > sum.remainingMinutes;
-                  const isDisabled =
-                    !t.isRunning && (sum.remainingMinutes <= 0 || exceedsRemaining);
-                  return (
-                    <div
-                      key={ck}
-                      className={`p-2.5 rounded-lg border space-y-2 ${
-                        isRinging
-                          ? 'bg-red-950/60 border-red-500 animate-pulse'
-                          : 'bg-slate-900 border-slate-800'
-                      }`}
-                    >
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-semibold text-slate-200">{cfg.name}</span>
-                        <span
-                          className={`font-mono font-bold tabular-nums ${
-                            isRinging || isFinished ? 'text-red-400' : 'text-amber-400'
-                          }`}
-                        >
-                          {formatTimer(t.remainingSeconds)}
-                        </span>
-                      </div>
-                      <div className="flex items-center justify-between gap-1.5">
-                        <span className="text-[11px] text-slate-400 tabular-nums">
-                          설정 {t.targetMinutes}분 · 잔여 {sum.remainingMinutes}분
-                        </span>
-                        <div className="flex items-center gap-1">
-                          {isRinging ? (
-                            <button
-                              type="button"
-                              onClick={() => handleDismissChildAlarm(ck)}
-                              className="px-2 py-1 rounded-md bg-red-600 hover:bg-red-500 text-white text-[11px] font-semibold transition-colors"
-                            >
-                              알림 해제
-                            </button>
-                          ) : isFinished ? (
-                            sum.remainingMinutes > 0 && (
-                              <button
-                                type="button"
-                                onClick={() => handleDeductChildTimer(ck, 'target')}
-                                className="px-2 py-1 rounded-md bg-red-600 hover:bg-red-500 text-white text-[11px] font-semibold tabular-nums transition-colors"
-                              >
-                                -{Math.min(t.targetMinutes, sum.remainingMinutes)}분 차감
-                              </button>
-                            )
-                          ) : (
-                            <button
-                              type="button"
-                              disabled={isDisabled}
-                              onClick={() => handleToggleChildTimer(ck)}
-                              className={`px-2 py-1 rounded-md text-[11px] font-semibold inline-flex items-center gap-1 transition-colors ${
-                                isDisabled
-                                  ? 'bg-slate-800 text-slate-600 cursor-not-allowed'
-                                  : t.isRunning
-                                  ? 'bg-amber-500 text-slate-950 hover:bg-amber-400'
-                                  : 'bg-emerald-600 text-white hover:bg-emerald-500'
-                              }`}
-                            >
-                              {t.isRunning ? (
-                                <>
-                                  <Pause className="w-3 h-3 fill-current" />
-                                  <span>정지</span>
-                                </>
+                {(authRole === 'parent' ? (['suhyun', 'dahyun'] as ChildKey[]) : [authRole]).map(
+                  (ck) => {
+                    const cfg = CHILDREN_CONFIG[ck];
+                    const sum = summaries[ck];
+                    const t = timers[ck];
+                    const isRinging = Boolean(t.isAlarmRinging);
+                    const isFinished = t.remainingSeconds === 0;
+                    const exceedsRemaining =
+                      sum.remainingMinutes > 0 && t.targetMinutes > sum.remainingMinutes;
+                    const isDisabled =
+                      !t.isRunning && (sum.remainingMinutes <= 0 || exceedsRemaining);
+                    return (
+                      <div
+                        key={ck}
+                        className={`p-2.5 rounded-lg border space-y-2 ${
+                          isRinging
+                            ? 'bg-red-950/60 border-red-500 animate-pulse'
+                            : 'bg-slate-900 border-slate-800'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-semibold text-slate-200">{cfg.name}</span>
+                          <span
+                            className={`font-mono font-bold tabular-nums ${
+                              isRinging || isFinished ? 'text-red-400' : 'text-amber-400'
+                            }`}
+                          >
+                            {formatTimer(t.remainingSeconds)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-1.5">
+                          <span className="text-[11px] text-slate-400 tabular-nums">
+                            설정 {t.targetMinutes}분 · 잔여 {sum.remainingMinutes}분
+                          </span>
+                          {isParentMode && (
+                            <div className="flex items-center gap-1">
+                              {isRinging ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDismissChildAlarm(ck)}
+                                  className="px-2 py-1 rounded-md bg-red-600 hover:bg-red-500 text-white text-[11px] font-semibold transition-colors"
+                                >
+                                  알림 해제
+                                </button>
+                              ) : isFinished ? (
+                                sum.remainingMinutes > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeductChildTimer(ck, 'target')}
+                                    className="px-2 py-1 rounded-md bg-red-600 hover:bg-red-500 text-white text-[11px] font-semibold tabular-nums transition-colors"
+                                  >
+                                    -{Math.min(t.targetMinutes, sum.remainingMinutes)}분 차감
+                                  </button>
+                                )
                               ) : (
-                                <>
-                                  <Play className="w-3 h-3 fill-current" />
-                                  <span>시작</span>
-                                </>
+                                <button
+                                  type="button"
+                                  disabled={isDisabled}
+                                  onClick={() => handleToggleChildTimer(ck)}
+                                  className={`px-2 py-1 rounded-md text-[11px] font-semibold inline-flex items-center gap-1 transition-colors ${
+                                    isDisabled
+                                      ? 'bg-slate-800 text-slate-600 cursor-not-allowed'
+                                      : t.isRunning
+                                      ? 'bg-amber-500 text-slate-950 hover:bg-amber-400'
+                                      : 'bg-emerald-600 text-white hover:bg-emerald-500'
+                                  }`}
+                                >
+                                  {t.isRunning ? (
+                                    <>
+                                      <Pause className="w-3 h-3 fill-current" />
+                                      <span>정지</span>
+                                    </>
+                                  ) : (
+                                    <>
+                                      <Play className="w-3 h-3 fill-current" />
+                                      <span>시작</span>
+                                    </>
+                                  )}
+                                </button>
                               )}
-                            </button>
+                            </div>
                           )}
                         </div>
                       </div>
-                    </div>
-                  );
-                })}
+                    );
+                  }
+                )}
               </div>
             </div>
           )}
@@ -2111,8 +3058,8 @@ export default function App() {
                 </>
               ) : (
                 <>
-                  <Lock className="w-4 h-4 text-slate-400" />
-                  <span>자녀용 조회 모드</span>
+                  <Lock className="w-4 h-4 text-blue-600" />
+                  <span>{currentConfig.name} 로그인</span>
                 </>
               )}
             </span>
@@ -2130,20 +3077,21 @@ export default function App() {
               </button>
               <button
                 type="button"
-                onClick={handleParentLogout}
-                className="flex-1 px-2.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-semibold transition-colors whitespace-nowrap"
+                onClick={handleLogout}
+                className="flex-1 px-2.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-semibold inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap"
               >
-                로그아웃
+                <LogOut className="w-3 h-3" />
+                <span>로그아웃</span>
               </button>
             </div>
           ) : (
             <button
               type="button"
-              onClick={openLoginModal}
+              onClick={handleLogout}
               className="w-full px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors"
             >
-              <Lock className="w-3.5 h-3.5" />
-              <span>부모님 암호 로그인</span>
+              <LogOut className="w-3.5 h-3.5" />
+              <span>로그아웃 (계정 전환)</span>
             </button>
           )}
         </div>
@@ -2158,7 +3106,7 @@ export default function App() {
           {/* Zone 1: Single-line Title / Breadcrumb */}
           <div className="flex items-center gap-2 min-w-0">
             <span className="lg:hidden text-sm font-bold tracking-tight text-slate-900 whitespace-nowrap shrink-0">
-              수현·다현 매니저
+              {authRole === 'parent' ? '수현·다현 매니저' : `${currentConfig.name} 매니저`}
             </span>
             <div className="hidden lg:flex items-center gap-2 text-xs text-slate-500 whitespace-nowrap">
               <span className="font-semibold text-slate-900">
@@ -2177,7 +3125,9 @@ export default function App() {
                 <span>부모님 관리 모드 · 단독 제어 활성화</span>
               </span>
             ) : (
-              <span>자녀용 조회 모드 · 읽기 전용 (부모 로그인 시 제어 가능)</span>
+              <span>
+                {currentConfig.name} 계정 · 독후감 음성 녹음 및 기록 조회 가능
+              </span>
             )}
           </div>
 
@@ -2196,63 +3146,62 @@ export default function App() {
               <span className="sm:hidden">{syncBadgeMeta.shortLabel}</span>
             </button>
 
-            {isParentMode ? (
-              <button
-                type="button"
-                onClick={handleParentLogout}
-                className="px-3.5 py-1.5 rounded-xl bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-              >
-                <Unlock className="w-3.5 h-3.5" />
-                <span>자녀 화면으로 잠금</span>
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={openLoginModal}
-                className="px-3.5 py-1.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
-              >
-                <Lock className="w-3.5 h-3.5" />
-                <span>부모님 로그인</span>
-              </button>
-            )}
+            <button
+              type="button"
+              onClick={handleLogout}
+              className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+                isParentMode
+                  ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200'
+                  : 'bg-slate-900 hover:bg-slate-800 text-white'
+              }`}
+            >
+              <LogOut className="w-3.5 h-3.5" />
+              <span>로그아웃</span>
+            </button>
           </div>
         </header>
 
         {/* Main Scrollable Content */}
         <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-5 sm:py-6 space-y-6">
-          {/* Mobile & Tablet Child Switcher + Nav Tabs (non-sticky so mobile sticky cap < 15%) */}
+          {/* Mobile & Tablet Child Switcher + Nav Tabs */}
           <div className="lg:hidden space-y-3">
-            <div className="grid grid-cols-2 gap-2 bg-slate-200/70 p-1 rounded-xl">
-              {(['suhyun', 'dahyun'] as ChildKey[]).map((ck) => {
-                const cfg = CHILDREN_CONFIG[ck];
-                const sum = summaries[ck];
-                const isActive = activeChild === ck;
-                const isBlue = ck === 'suhyun';
+            {authRole === 'parent' && (
+              <div className="grid grid-cols-2 gap-2 bg-slate-200/70 p-1 rounded-xl">
+                {(['suhyun', 'dahyun'] as ChildKey[]).map((ck) => {
+                  const cfg = CHILDREN_CONFIG[ck];
+                  const sum = summaries[ck];
+                  const isActive = activeChild === ck;
+                  const isBlue = ck === 'suhyun';
 
-                return (
-                  <button
-                    key={ck}
-                    type="button"
-                    onClick={() => setActiveChild(ck)}
-                    className={`px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-colors tabular-nums whitespace-nowrap ${
-                      isActive
-                        ? isBlue
-                          ? 'bg-blue-600 text-white shadow-xs'
-                          : 'bg-rose-600 text-white shadow-xs'
-                        : 'text-slate-600 hover:text-slate-900'
-                    }`}
-                  >
-                    <span>{cfg.name}</span>
-                    <span className={isActive ? 'text-white/80' : 'text-slate-400'}>
-                      {sum.totalScore}/{sum.effectiveWeeklyMaxScore}
-                    </span>
-                  </button>
-                );
-              })}
-            </div>
+                  return (
+                    <button
+                      key={ck}
+                      type="button"
+                      onClick={() => handleSelectChild(ck)}
+                      className={`px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-colors tabular-nums whitespace-nowrap ${
+                        isActive
+                          ? isBlue
+                            ? 'bg-blue-600 text-white shadow-xs'
+                            : 'bg-rose-600 text-white shadow-xs'
+                          : 'text-slate-600 hover:text-slate-900'
+                      }`}
+                    >
+                      <span>{cfg.name}</span>
+                      <span className={isActive ? 'text-white/80' : 'text-slate-400'}>
+                        {sum.totalScore}/{sum.effectiveWeeklyMaxScore}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 bg-white p-1.5 rounded-xl border border-slate-200">
-              {TAB_ITEMS.map((item) => {
+            <div
+              className={`grid gap-1.5 bg-white p-1.5 rounded-xl border border-slate-200 ${
+                visibleTabs.length === 4 ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'
+              }`}
+            >
+              {visibleTabs.map((item) => {
                 const Icon = item.icon;
                 const isActive = activeTab === item.key;
                 return (
@@ -2284,85 +3233,162 @@ export default function App() {
                     onClick={() => setActiveTab('youtube')}
                     className="text-[11px] text-slate-400 hover:text-white underline"
                   >
-                    시간 설정·제어
+                    상세 보기
                   </button>
                 </div>
-                <div className="grid grid-cols-2 gap-2">
-                  {(['suhyun', 'dahyun'] as ChildKey[]).map((ck) => {
-                    const cfg = CHILDREN_CONFIG[ck];
-                    const sum = summaries[ck];
-                    const t = timers[ck];
-                    const isRinging = Boolean(t.isAlarmRinging);
-                    const isFinished = t.remainingSeconds === 0;
-                    const exceedsRemaining =
-                      sum.remainingMinutes > 0 && t.targetMinutes > sum.remainingMinutes;
-                    const isDisabled =
-                      !t.isRunning && (sum.remainingMinutes <= 0 || exceedsRemaining);
-                    return (
-                      <div
-                        key={ck}
-                        className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border text-xs ${
-                          isRinging
-                            ? 'bg-red-950/60 border-red-500 animate-pulse'
-                            : 'bg-slate-900 border-slate-800'
-                        }`}
-                      >
-                        <div className="min-w-0">
-                          <div className="font-semibold text-slate-200 truncate">
-                            {cfg.name}{' '}
-                            <span className="text-[10px] font-normal text-slate-400">
-                              ({t.targetMinutes}분)
-                            </span>
-                          </div>
-                          <div
-                            className={`font-mono font-bold tabular-nums ${
-                              isRinging || isFinished ? 'text-red-400' : 'text-amber-400'
-                            }`}
-                          >
-                            {formatTimer(t.remainingSeconds)}
-                          </div>
-                        </div>
-                        {isRinging ? (
-                          <button
-                            type="button"
-                            onClick={() => handleDismissChildAlarm(ck)}
-                            className="px-2 py-1 rounded-md bg-red-600 text-white text-[11px] font-semibold shrink-0"
-                          >
-                            해제
-                          </button>
-                        ) : isFinished ? (
-                          sum.remainingMinutes > 0 && (
-                            <button
-                              type="button"
-                              onClick={() => handleDeductChildTimer(ck, 'target')}
-                              className="px-2 py-1 rounded-md bg-red-600 text-white text-[11px] font-semibold shrink-0"
+                <div
+                  className={`grid gap-2 ${
+                    authRole === 'parent' ? 'grid-cols-2' : 'grid-cols-1'
+                  }`}
+                >
+                  {(authRole === 'parent' ? (['suhyun', 'dahyun'] as ChildKey[]) : [authRole]).map(
+                    (ck) => {
+                      const cfg = CHILDREN_CONFIG[ck];
+                      const sum = summaries[ck];
+                      const t = timers[ck];
+                      const isRinging = Boolean(t.isAlarmRinging);
+                      const isFinished = t.remainingSeconds === 0;
+                      const exceedsRemaining =
+                        sum.remainingMinutes > 0 && t.targetMinutes > sum.remainingMinutes;
+                      const isDisabled =
+                        !t.isRunning && (sum.remainingMinutes <= 0 || exceedsRemaining);
+                      return (
+                        <div
+                          key={ck}
+                          className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border text-xs ${
+                            isRinging
+                              ? 'bg-red-950/60 border-red-500 animate-pulse'
+                              : 'bg-slate-900 border-slate-800'
+                          }`}
+                        >
+                          <div className="min-w-0">
+                            <div className="font-semibold text-slate-200 truncate">
+                              {cfg.name}{' '}
+                              <span className="text-[10px] font-normal text-slate-400">
+                                ({t.targetMinutes}분)
+                              </span>
+                            </div>
+                            <div
+                              className={`font-mono font-bold tabular-nums ${
+                                isRinging || isFinished ? 'text-red-400' : 'text-amber-400'
+                              }`}
                             >
-                              차감
-                            </button>
-                          )
-                        ) : (
-                          <button
-                            type="button"
-                            disabled={isDisabled}
-                            onClick={() => handleToggleChildTimer(ck)}
-                            className={`px-2 py-1 rounded-md text-[11px] font-semibold shrink-0 ${
-                              isDisabled
-                                ? 'bg-slate-800 text-slate-600'
-                                : t.isRunning
-                                ? 'bg-amber-500 text-slate-950'
-                                : 'bg-emerald-600 text-white'
-                            }`}
-                          >
-                            {t.isRunning ? '정지' : '시작'}
-                          </button>
-                        )}
-                      </div>
-                    );
-                  })}
+                              {formatTimer(t.remainingSeconds)}
+                            </div>
+                          </div>
+                          {isParentMode && (
+                            <>
+                              {isRinging ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleDismissChildAlarm(ck)}
+                                  className="px-2 py-1 rounded-md bg-red-600 text-white text-[11px] font-semibold shrink-0"
+                                >
+                                  해제
+                                </button>
+                              ) : isFinished ? (
+                                sum.remainingMinutes > 0 && (
+                                  <button
+                                    type="button"
+                                    onClick={() => handleDeductChildTimer(ck, 'target')}
+                                    className="px-2 py-1 rounded-md bg-red-600 text-white text-[11px] font-semibold shrink-0"
+                                  >
+                                    차감
+                                  </button>
+                                )
+                              ) : (
+                                <button
+                                  type="button"
+                                  disabled={isDisabled}
+                                  onClick={() => handleToggleChildTimer(ck)}
+                                  className={`px-2 py-1 rounded-md text-[11px] font-semibold shrink-0 ${
+                                    isDisabled
+                                      ? 'bg-slate-800 text-slate-600'
+                                      : t.isRunning
+                                      ? 'bg-amber-500 text-slate-950'
+                                      : 'bg-emerald-600 text-white'
+                                  }`}
+                                >
+                                  {t.isRunning ? '정지' : '시작'}
+                                </button>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      );
+                    }
+                  )}
                 </div>
               </div>
             )}
           </div>
+
+          {/* Calendar Week Navigator Bar (Cumulative Weekly History) */}
+          <section className="bg-white rounded-2xl border border-slate-200/90 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600">
+                <Calendar className="w-4 h-4 text-blue-600" />
+                <span>주간 달력 기록</span>
+              </div>
+              {isViewingCurrentWeek ? (
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                  이번 주
+                </span>
+              ) : (
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                  과거/다른 주 조회 중
+                </span>
+              )}
+            </div>
+
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                type="button"
+                onClick={() => handleSelectWeek(shiftWeekId(selectedWeekId, -1))}
+                className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold inline-flex items-center gap-1 transition-colors"
+              >
+                <ChevronLeft className="w-3.5 h-3.5" />
+                <span>이전 주</span>
+              </button>
+
+              <select
+                value={selectedWeekId}
+                onChange={(e) => handleSelectWeek(e.target.value)}
+                aria-label="조회할 주차 선택"
+                className="px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-900 tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-500"
+              >
+                {availableWeekIds.map((wid) => (
+                  <option key={wid} value={wid}>
+                    {formatWeekRangeLabel(wid)} {wid === realCurrentWeekId ? '(이번 주)' : ''}
+                  </option>
+                ))}
+              </select>
+
+              <button
+                type="button"
+                onClick={() => handleSelectWeek(shiftWeekId(selectedWeekId, 1))}
+                disabled={selectedWeekId >= realCurrentWeekId}
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold inline-flex items-center gap-1 transition-colors ${
+                  selectedWeekId >= realCurrentWeekId
+                    ? 'bg-slate-50 text-slate-300 cursor-not-allowed'
+                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                }`}
+              >
+                <span>다음 주</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+
+              {!isViewingCurrentWeek && (
+                <button
+                  type="button"
+                  onClick={() => handleSelectWeek(realCurrentWeekId)}
+                  className="px-2.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-colors"
+                >
+                  이번 주로
+                </button>
+              )}
+            </div>
+          </section>
 
           {/* 4-Column KPI Metric Strip (Single-Elevation, Zero-Pill, Tabular) */}
           <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5">
@@ -2382,7 +3408,9 @@ export default function App() {
               }`}
             >
               <div className="flex items-center justify-between w-full">
-                <span className="text-xs font-semibold text-slate-500">이번 주 획득 점수</span>
+                <span className="text-xs font-semibold text-slate-500">
+                  {isViewingCurrentWeek ? '이번 주 획득 점수' : '해당 주 획득 점수'}
+                </span>
                 <TrendingUp
                   className={`w-4 h-4 ${isSuhyun ? 'text-blue-600' : 'text-rose-600'}`}
                 />
@@ -2504,7 +3532,7 @@ export default function App() {
           {/* Active Workspace Tab Content */}
           <AnimatePresence mode="wait">
             <motion.div
-              key={`${activeChild}-${activeTab}`}
+              key={`${activeChild}-${activeTab}-${selectedWeekId}`}
               initial={{ opacity: 0, y: 6 }}
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -4 }}
@@ -2513,14 +3541,29 @@ export default function App() {
               {activeTab === 'board' && (
                 <WeeklyBoardTab
                   currentConfig={currentConfig}
-                  currentData={currentData}
+                  weekRecord={currentWeekRecord}
+                  selectedWeekId={selectedWeekId}
                   scoreSummary={scoreSummary}
                   isParentMode={isParentMode}
+                  authRole={authRole}
                   stampMode={stampMode}
                   setStampMode={setStampMode}
                   showIncompleteOnly={showIncompleteOnly}
                   setShowIncompleteOnly={setShowIncompleteOnly}
                   onCellToggle={handleCellToggle}
+                  onReadingScoreChange={handleReadingScoreChange}
+                  onToggleReadingRecord={handleToggleReadingRecord}
+                  onToggleReadingPlay={handleToggleReadingPlay}
+                  recordingDayKey={
+                    recordingTarget &&
+                    recordingTarget.childKey === activeChild &&
+                    recordingTarget.weekId === selectedWeekId
+                      ? recordingTarget.dayKey
+                      : null
+                  }
+                  recordingElapsedSec={recordingElapsedSec}
+                  isUploadingAudio={isUploadingAudio}
+                  playingAudioId={playingAudioId}
                   onBulkDayComplete={handleBulkDayComplete}
                   onOpenClothesModal={(dayKey, dayLabel) =>
                     setClothesHelperModal({ dayKey, dayLabel })
@@ -2533,7 +3576,11 @@ export default function App() {
               {activeTab === 'youtube' && (
                 <YoutubeTimerTab
                   currentConfig={currentConfig}
-                  currentData={currentData}
+                  currentData={{
+                    ...currentData,
+                    usedYoutubeMinutes: currentWeekRecord.usedYoutubeMinutes,
+                    youtubeLogs: currentWeekRecord.youtubeLogs
+                  }}
                   scoreSummary={scoreSummary}
                   summaries={summaries}
                   timers={timers}
@@ -2566,7 +3613,7 @@ export default function App() {
                 />
               )}
 
-              {activeTab === 'settings' && (
+              {activeTab === 'settings' && authRole === 'parent' && (
                 <SettingsTab
                   isParentMode={isParentMode}
                   currentPinForChange={currentPinForChange}
@@ -2580,6 +3627,8 @@ export default function App() {
                   pinError={pinError}
                   setPinError={setPinError}
                   onSaveNewPin={handleSaveNewPin}
+                  childPins={childPins}
+                  onSaveChildPin={handleSaveChildPin}
                   onOpenLogin={openLoginModal}
                   onResetAllDataExceptStickers={handleResetAllDataExceptStickers}
                   syncStatus={syncStatus}
@@ -2596,6 +3645,7 @@ export default function App() {
                   }
                   effectiveConfigs={effectiveConfigs}
                   onSaveItemScores={handleSaveItemScores}
+                  onPreviewDynamicScoring={handlePreviewDynamicScoring}
                 />
               )}
             </motion.div>
@@ -2607,7 +3657,7 @@ export default function App() {
       <ClothesHelperModal
         modalData={clothesHelperModal}
         currentConfig={currentConfig}
-        currentData={currentData}
+        weekRecord={currentWeekRecord}
         isParentMode={isParentMode}
         onClose={() => setClothesHelperModal(null)}
         onToggleSubItem={handleToggleClothesSubItem}
@@ -2662,6 +3712,14 @@ export default function App() {
         onDismissOnly={handleDismissChildAlarm}
         onDismissAndDeduct={(ck) => handleDeductChildTimer(ck, 'target')}
       />
+
+      {isParentMode && (
+        <DynamicScoreProposalModal
+          proposal={pendingScoreProposal}
+          onApprove={handleApproveScoreProposal}
+          onReject={handleRejectScoreProposal}
+        />
+      )}
 
       <ConfirmModal dialog={confirmDialog} onClose={() => setConfirmDialog(null)} />
     </div>
