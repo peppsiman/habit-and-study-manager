@@ -55,7 +55,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
 
   return (
     <div className="min-h-screen bg-slate-50 flex items-center justify-center p-4">
-      <div className="w-full max-w-md bg-white rounded-3xl border border-slate-200/90 shadow-xl p-6 sm:p-8 space-y-6">
+      <div className="w-full max-w-md bg-white rounded-3xl border border-slate-200/90 shadow-xl p-5 sm:p-8 space-y-5 sm:space-y-6">
         <div className="text-center space-y-2">
           <div className="w-12 h-12 rounded-2xl bg-slate-900 text-white flex items-center justify-center mx-auto shadow-sm">
             <Lock className="w-6 h-6" />
@@ -91,7 +91,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({
                   setSelectedRole(opt.role);
                   setError('');
                 }}
-                className={`p-3 rounded-2xl border text-center transition-all space-y-1 ${
+                className={`p-2.5 sm:p-3 rounded-2xl border text-center transition-all space-y-1 ${
                   active
                     ? activeClasses
                     : 'bg-slate-50/70 hover:bg-slate-100 border-slate-200 text-slate-700'

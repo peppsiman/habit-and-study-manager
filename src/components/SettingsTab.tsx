@@ -224,7 +224,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   return (
     <section className="space-y-6">
       {/* Cloud Sync Status (Cloudflare KV / D1) */}
-      <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200/90 space-y-4">
+      <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200/90 space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-100">
           <div className="flex items-center gap-3">
             <div
@@ -265,7 +265,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           </button>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 text-xs">
           <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1">
             <div className="text-slate-400 font-semibold">연결 저장소</div>
             <div className="font-bold text-slate-900">{storageLabel}</div>
@@ -302,7 +302,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
       </div>
 
       {/* Parent PIN Security Management */}
-      <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200/90 space-y-5">
+      <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200/90 space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-100">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center shrink-0">
@@ -330,7 +330,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
             <form
               onSubmit={onSaveNewPin}
-              className="bg-slate-50/80 p-5 rounded-xl border border-slate-200/80 space-y-3.5"
+              className="bg-slate-50/80 p-4 sm:p-5 rounded-xl border border-slate-200/80 space-y-3.5"
             >
               <h3 className="text-sm font-bold text-slate-900">새 비밀번호로 변경</h3>
 
@@ -406,7 +406,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
               </button>
             </form>
 
-            <div className="p-5 rounded-xl border border-slate-200/80 bg-white space-y-4 text-xs text-slate-600 leading-relaxed">
+            <div className="p-4 sm:p-5 rounded-xl border border-slate-200/80 bg-white space-y-4 text-xs text-slate-600 leading-relaxed">
               <div className="space-y-3">
                 <h4 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
                   <User className="w-4 h-4 text-slate-700" />
@@ -496,7 +496,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
       </div>
 
       {/* Scoring Matrix & Data Reset */}
-      <div className="bg-white rounded-2xl p-5 sm:p-6 border border-slate-200/90 space-y-5">
+      <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200/90 space-y-5">
         <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-100">
           <div>
             <h2 className="text-base font-bold text-slate-900">
@@ -509,7 +509,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           </div>
 
           {isParentMode && (
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
               <button
                 type="button"
                 onClick={onPreviewDynamicScoring}

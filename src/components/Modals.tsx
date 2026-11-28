@@ -49,7 +49,7 @@ export const ClothesHelperModal: React.FC<ClothesModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-5">
+      <div className="bg-white rounded-2xl max-w-md w-full p-4 sm:p-6 max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200 space-y-5">
         <div className="flex items-start justify-between gap-3">
           <div className="space-y-1">
             <h3 className="text-base font-bold text-slate-900">
@@ -185,7 +185,7 @@ export const PinModal: React.FC<PinModalProps> = ({
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+      <div className="bg-white rounded-2xl max-w-sm w-full p-5 sm:p-6 max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200 space-y-4">
         <div className="flex items-center justify-between">
           <h3 className="text-base font-bold text-slate-900 flex items-center gap-2">
             <KeyRound className="w-4 h-4 text-slate-700" />
@@ -306,7 +306,7 @@ export const ConfirmModal: React.FC<ConfirmModalProps> = ({ dialog, onClose }) =
 
   return (
     <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-      <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border border-slate-200 space-y-4">
+      <div className="bg-white rounded-2xl max-w-md w-full p-5 sm:p-6 max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200 space-y-4">
         <h3 className="text-base font-bold text-slate-900">{dialog.title}</h3>
         <p className="text-xs text-slate-600 leading-relaxed">{dialog.message}</p>
         <div className="flex justify-end gap-2 pt-2">
@@ -360,7 +360,7 @@ export const TimerAlarmModal: React.FC<TimerAlarmModalProps> = ({
       aria-label="유튜브 시청 시간 종료 알림"
       className="fixed inset-0 z-50 bg-slate-950/75 backdrop-blur-sm flex items-center justify-center p-4"
     >
-      <div className="bg-white rounded-2xl max-w-md w-full p-6 shadow-2xl border-2 border-red-500 space-y-5">
+      <div className="bg-white rounded-2xl max-w-md w-full p-4 sm:p-6 max-h-[90vh] overflow-y-auto shadow-2xl border-2 border-red-500 space-y-5">
         <div className="flex items-center gap-3">
           <div className="w-11 h-11 rounded-2xl bg-red-100 text-red-600 flex items-center justify-center shrink-0 animate-pulse">
             <BellRing className="w-6 h-6" />
@@ -477,7 +477,7 @@ export const DynamicScoreProposalModal: React.FC<DynamicScoreProposalModalProps>
       aria-label="주간 개별 학습과목 자동 배점 변경 안내"
       className="fixed inset-0 z-50 bg-slate-950/70 backdrop-blur-sm flex items-center justify-center p-4 overflow-y-auto"
     >
-      <div className="bg-white rounded-2xl max-w-3xl w-full p-6 shadow-2xl border border-slate-200 space-y-5 my-6">
+      <div className="bg-white rounded-2xl max-w-3xl w-full p-4 sm:p-6 max-h-[90vh] overflow-y-auto shadow-2xl border border-slate-200 space-y-5 my-6">
         <div className="flex items-start justify-between gap-3 pb-3 border-b border-slate-100">
           <div className="flex items-center gap-3">
             <div className="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center shrink-0">

@@ -3019,7 +3019,7 @@ export default function App() {
           <div
             role="status"
             aria-live="polite"
-            className="fixed bottom-5 right-5 z-50 max-w-sm bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl border border-slate-800 flex items-center gap-3"
+            className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-5 sm:bottom-5 z-50 sm:max-w-sm bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl border border-slate-800 flex items-center gap-3"
           >
             <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
             <span className="text-xs sm:text-sm font-medium leading-snug">{toastMessage.msg}</span>
@@ -3048,7 +3048,7 @@ export default function App() {
         <div
           role="status"
           aria-live="polite"
-          className="fixed bottom-5 right-5 z-50 max-w-sm bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl border border-slate-800 flex items-center gap-3"
+          className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-5 sm:bottom-5 z-50 sm:max-w-sm bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl border border-slate-800 flex items-center gap-3"
         >
           <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
           <span className="text-xs sm:text-sm font-medium leading-snug">{toastMessage.msg}</span>
@@ -3356,10 +3356,10 @@ export default function App() {
       ========================================== */}
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Top Bar (Strict 1-row, 3-zone contract, <= 15% mobile height) */}
-        <header className="sticky top-0 z-30 h-14 bg-white/95 backdrop-blur-md border-b border-slate-200/90 px-4 sm:px-6 flex items-center justify-between gap-4">
+        <header className="sticky top-0 z-30 h-14 bg-white/95 backdrop-blur-md border-b border-slate-200/90 px-3 sm:px-6 flex items-center justify-between gap-2 sm:gap-4">
           {/* Zone 1: Single-line Title / Breadcrumb */}
           <div className="flex items-center gap-2 min-w-0">
-            <span className="lg:hidden text-sm font-bold tracking-tight text-slate-900 whitespace-nowrap shrink-0">
+            <span className="lg:hidden text-sm font-bold tracking-tight text-slate-900 truncate">
               {authRole === 'parent' ? '수현·다현 매니저' : `${currentConfig.name} 매니저`}
             </span>
             <div className="hidden lg:flex items-center gap-2 text-xs text-slate-500 whitespace-nowrap">
@@ -3386,7 +3386,7 @@ export default function App() {
           </div>
 
           {/* Zone 3: Sync Status + Primary Action */}
-          <div className="flex items-center gap-2 shrink-0">
+          <div className="flex items-center gap-1.5 sm:gap-2 shrink-0">
             <button
               type="button"
               onClick={() => void syncFromCloud(true)}
@@ -3403,7 +3403,7 @@ export default function App() {
             <button
               type="button"
               onClick={handleLogout}
-              className={`px-3.5 py-1.5 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
+              className={`px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
                 isParentMode
                   ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200'
                   : 'bg-slate-900 hover:bg-slate-800 text-white'
@@ -3416,9 +3416,9 @@ export default function App() {
         </header>
 
         {/* Main Scrollable Content */}
-        <main className="flex-1 max-w-6xl w-full mx-auto px-4 sm:px-6 py-5 sm:py-6 space-y-6">
+        <main className="flex-1 max-w-6xl w-full mx-auto px-3 sm:px-6 py-4 sm:py-6 space-y-4 sm:space-y-6">
           {/* Mobile & Tablet Child Switcher + Nav Tabs */}
-          <div className="lg:hidden space-y-3">
+          <div className="lg:hidden space-y-2.5 sm:space-y-3">
             {authRole === 'parent' && (
               <div className="grid grid-cols-2 gap-2 bg-slate-200/70 p-1 rounded-xl">
                 {(['suhyun', 'dahyun'] as ChildKey[]).map((ck) => {
@@ -3451,8 +3451,8 @@ export default function App() {
             )}
 
             <div
-              className={`grid gap-1.5 bg-white p-1.5 rounded-xl border border-slate-200 ${
-                visibleTabs.length === 4 ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-3'
+              className={`grid gap-1 sm:gap-1.5 bg-white p-1 sm:p-1.5 rounded-xl border border-slate-200 ${
+                visibleTabs.length === 4 ? 'grid-cols-4' : 'grid-cols-3'
               }`}
             >
               {visibleTabs.map((item) => {
@@ -3463,7 +3463,7 @@ export default function App() {
                     key={item.key}
                     type="button"
                     onClick={() => setActiveTab(item.key)}
-                    className={`px-3 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap ${
+                    className={`px-1.5 sm:px-3 py-2 rounded-lg text-[11px] sm:text-xs font-semibold flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 transition-colors whitespace-nowrap ${
                       isActive ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
                     }`}
                   >
@@ -3578,7 +3578,7 @@ export default function App() {
           </div>
 
           {/* Calendar Week Navigator Bar (Cumulative Weekly History) */}
-          <section className="bg-white rounded-2xl border border-slate-200/90 px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <section className="bg-white rounded-2xl border border-slate-200/90 px-3.5 sm:px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3">
             <div className="flex items-center gap-2 flex-wrap">
               <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600">
                 <Calendar className="w-4 h-4 text-blue-600" />
@@ -3593,23 +3593,33 @@ export default function App() {
                   과거/다른 주 조회 중
                 </span>
               )}
+              {!isViewingCurrentWeek && (
+                <button
+                  type="button"
+                  onClick={() => handleSelectWeek(realCurrentWeekId)}
+                  className="ml-auto sm:hidden px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold transition-colors whitespace-nowrap"
+                >
+                  이번 주로
+                </button>
+              )}
             </div>
 
-            <div className="flex items-center gap-2 flex-wrap">
+            <div className="flex items-center gap-1.5 sm:gap-2 w-full sm:w-auto">
               <button
                 type="button"
                 onClick={() => handleSelectWeek(shiftWeekId(selectedWeekId, -1))}
-                className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold inline-flex items-center gap-1 transition-colors"
+                aria-label="이전 주"
+                className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold inline-flex items-center gap-1 transition-colors shrink-0"
               >
                 <ChevronLeft className="w-3.5 h-3.5" />
-                <span>이전 주</span>
+                <span className="hidden sm:inline">이전 주</span>
               </button>
 
               <select
                 value={selectedWeekId}
                 onChange={(e) => handleSelectWeek(e.target.value)}
                 aria-label="조회할 주차 선택"
-                className="px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-900 tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 sm:flex-none min-w-0 px-2.5 sm:px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-900 tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 {availableWeekIds.map((wid) => (
                   <option key={wid} value={wid}>
@@ -3622,13 +3632,14 @@ export default function App() {
                 type="button"
                 onClick={() => handleSelectWeek(shiftWeekId(selectedWeekId, 1))}
                 disabled={selectedWeekId >= realCurrentWeekId}
-                className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold inline-flex items-center gap-1 transition-colors ${
+                aria-label="다음 주"
+                className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold inline-flex items-center gap-1 transition-colors shrink-0 ${
                   selectedWeekId >= realCurrentWeekId
                     ? 'bg-slate-50 text-slate-300 cursor-not-allowed'
                     : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
                 }`}
               >
-                <span>다음 주</span>
+                <span className="hidden sm:inline">다음 주</span>
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
 
@@ -3636,7 +3647,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => handleSelectWeek(realCurrentWeekId)}
-                  className="px-2.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-colors"
+                  className="hidden sm:inline-flex px-2.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
                 >
                   이번 주로
                 </button>
@@ -3645,7 +3656,7 @@ export default function App() {
           </section>
 
           {/* 4-Column KPI Metric Strip (Single-Elevation, Zero-Pill, Tabular) */}
-          <section className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-3.5">
+          <section className="grid grid-cols-2 xl:grid-cols-4 gap-2.5 sm:gap-3.5">
             {/* KPI 1: Weekly Total Score */}
             <button
               type="button"
@@ -3653,7 +3664,7 @@ export default function App() {
                 setShowIncompleteOnly(false);
                 setActiveTab('board');
               }}
-              className={`text-left bg-white hover:bg-slate-50/70 transition-colors rounded-2xl p-4 sm:p-5 border flex flex-col justify-between gap-3 ${
+              className={`text-left bg-white hover:bg-slate-50/70 transition-colors rounded-2xl p-3 sm:p-5 border flex flex-col justify-between gap-2 sm:gap-3 ${
                 activeTab === 'board' && !showIncompleteOnly
                   ? isSuhyun
                     ? 'border-blue-500 ring-1 ring-blue-500/20'
@@ -3661,24 +3672,24 @@ export default function App() {
                   : 'border-slate-200/90'
               }`}
             >
-              <div className="flex items-center justify-between w-full">
-                <span className="text-xs font-semibold text-slate-500">
+              <div className="flex items-center justify-between w-full gap-1">
+                <span className="text-[11px] sm:text-xs font-semibold text-slate-500 truncate">
                   {isViewingCurrentWeek ? '이번 주 획득 점수' : '해당 주 획득 점수'}
                 </span>
                 <TrendingUp
-                  className={`w-4 h-4 ${isSuhyun ? 'text-blue-600' : 'text-rose-600'}`}
+                  className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${isSuhyun ? 'text-blue-600' : 'text-rose-600'}`}
                 />
               </div>
-              <div className="flex items-baseline gap-1.5 tabular-nums">
-                <span className="text-3xl font-bold tracking-tight text-slate-900">
+              <div className="flex items-baseline gap-1 sm:gap-1.5 tabular-nums">
+                <span className="text-xl sm:text-3xl font-bold tracking-tight text-slate-900">
                   {scoreSummary.totalScore}
                 </span>
-                <span className="text-sm font-medium text-slate-400">
+                <span className="text-xs sm:text-sm font-medium text-slate-400">
                   / {scoreSummary.effectiveWeeklyMaxScore}점
                 </span>
               </div>
-              <div className="text-xs text-slate-500 pt-2.5 border-t border-slate-100 w-full tabular-nums">
-                평일 {scoreSummary.weekdayScore}점 · 보충 +{scoreSummary.weekendMakeupScore}점
+              <div className="text-[11px] sm:text-xs text-slate-500 pt-2 sm:pt-2.5 border-t border-slate-100 w-full tabular-nums truncate">
+                평일 {scoreSummary.weekdayScore} · 보충 +{scoreSummary.weekendMakeupScore}
               </div>
             </button>
 
@@ -3689,24 +3700,24 @@ export default function App() {
                 setActiveTab('board');
                 setShowIncompleteOnly(true);
               }}
-              className={`text-left bg-white hover:bg-slate-50/70 transition-colors rounded-2xl p-4 sm:p-5 border flex flex-col justify-between gap-3 ${
+              className={`text-left bg-white hover:bg-slate-50/70 transition-colors rounded-2xl p-3 sm:p-5 border flex flex-col justify-between gap-2 sm:gap-3 ${
                 activeTab === 'board' && showIncompleteOnly
                   ? 'border-amber-500 ring-1 ring-amber-500/20'
                   : 'border-slate-200/90'
               }`}
             >
-              <div className="flex items-center justify-between w-full">
-                <span className="text-xs font-semibold text-slate-500">주말 보충 가능</span>
-                <Sparkles className="w-4 h-4 text-amber-600" />
+              <div className="flex items-center justify-between w-full gap-1">
+                <span className="text-[11px] sm:text-xs font-semibold text-slate-500 truncate">주말 보충 가능</span>
+                <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-600 shrink-0" />
               </div>
-              <div className="flex items-baseline gap-1.5 tabular-nums">
-                <span className="text-3xl font-bold tracking-tight text-amber-600">
+              <div className="flex items-baseline gap-1 sm:gap-1.5 tabular-nums">
+                <span className="text-xl sm:text-3xl font-bold tracking-tight text-amber-600">
                   +{scoreSummary.incompletePotentialScore}
                 </span>
-                <span className="text-sm font-medium text-slate-400">점 추가 가능</span>
+                <span className="text-xs sm:text-sm font-medium text-slate-400">점 가능</span>
               </div>
-              <div className="text-xs text-slate-500 pt-2.5 border-t border-slate-100 w-full tabular-nums">
-                미완료 {scoreSummary.incompleteCount}건 · 클릭하여 모아보기
+              <div className="text-[11px] sm:text-xs text-slate-500 pt-2 sm:pt-2.5 border-t border-slate-100 w-full tabular-nums truncate">
+                미완료 {scoreSummary.incompleteCount}건 · 모아보기
               </div>
             </button>
 
@@ -3714,32 +3725,32 @@ export default function App() {
             <button
               type="button"
               onClick={() => setActiveTab('youtube')}
-              className={`text-left bg-white hover:bg-slate-50/70 transition-colors rounded-2xl p-4 sm:p-5 border flex flex-col justify-between gap-3 ${
+              className={`text-left bg-white hover:bg-slate-50/70 transition-colors rounded-2xl p-3 sm:p-5 border flex flex-col justify-between gap-2 sm:gap-3 ${
                 activeTab === 'youtube'
                   ? 'border-red-500 ring-1 ring-red-500/20'
                   : 'border-slate-200/90'
               }`}
             >
-              <div className="flex items-center justify-between w-full">
-                <span className="text-xs font-semibold text-slate-500">주말 유튜브 잔여</span>
-                <Youtube className="w-4 h-4 text-red-600" />
+              <div className="flex items-center justify-between w-full gap-1">
+                <span className="text-[11px] sm:text-xs font-semibold text-slate-500 truncate">주말 유튜브 잔여</span>
+                <Youtube className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-red-600 shrink-0" />
               </div>
-              <div className="flex items-baseline gap-2 tabular-nums">
-                <span className="text-3xl font-bold tracking-tight text-slate-900">
+              <div className="flex items-baseline gap-1.5 sm:gap-2 tabular-nums">
+                <span className="text-xl sm:text-3xl font-bold tracking-tight text-slate-900">
                   {scoreSummary.remainingMinutes}분
                 </span>
-                <span className="text-xs font-medium text-slate-400">
+                <span className="text-[11px] sm:text-xs font-medium text-slate-400 truncate">
                   ({formatMinutesReadable(scoreSummary.remainingMinutes)})
                 </span>
               </div>
-              <div className="w-full space-y-1.5 pt-1">
+              <div className="w-full space-y-1 sm:space-y-1.5 pt-1">
                 <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                   <div
                     className="bg-red-600 h-full rounded-full transition-all duration-300"
                     style={{ width: `${youtubeRemainingRatio}%` }}
                   />
                 </div>
-                <div className="text-[11px] text-slate-400 tabular-nums">
+                <div className="text-[11px] text-slate-400 tabular-nums truncate">
                   총 {scoreSummary.totalEarnedMinutes}분 중 {scoreSummary.usedMinutes}분 시청
                 </div>
               </div>
@@ -3749,25 +3760,25 @@ export default function App() {
             <button
               type="button"
               onClick={() => setActiveTab('sticker')}
-              className={`text-left bg-white hover:bg-slate-50/70 transition-colors rounded-2xl p-4 sm:p-5 border flex flex-col justify-between gap-3 ${
+              className={`text-left bg-white hover:bg-slate-50/70 transition-colors rounded-2xl p-3 sm:p-5 border flex flex-col justify-between gap-2 sm:gap-3 ${
                 activeTab === 'sticker'
                   ? 'border-violet-500 ring-1 ring-violet-500/20'
                   : 'border-slate-200/90'
               }`}
             >
-              <div className="flex items-center justify-between w-full">
-                <span className="text-xs font-semibold text-slate-500">
+              <div className="flex items-center justify-between w-full gap-1">
+                <span className="text-[11px] sm:text-xs font-semibold text-slate-500 truncate">
                   칭찬스티커 ({currentData.stickerRound}회차)
                 </span>
-                <Award className="w-4 h-4 text-violet-600" />
+                <Award className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-violet-600 shrink-0" />
               </div>
-              <div className="flex items-baseline gap-1.5 tabular-nums">
-                <span className="text-3xl font-bold tracking-tight text-slate-900">
+              <div className="flex items-baseline gap-1 sm:gap-1.5 tabular-nums">
+                <span className="text-xl sm:text-3xl font-bold tracking-tight text-slate-900">
                   {(currentData.stickers || []).length}
                 </span>
-                <span className="text-sm font-medium text-slate-400">/ 100개</span>
+                <span className="text-xs sm:text-sm font-medium text-slate-400">/ 100개</span>
               </div>
-              <div className="w-full space-y-1.5 pt-1">
+              <div className="w-full space-y-1 sm:space-y-1.5 pt-1">
                 <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
                   <div
                     className="bg-violet-600 h-full rounded-full transition-all duration-300"

@@ -97,11 +97,11 @@ export const YoutubeTimerTab: React.FC<YoutubeTimerTabProps> = ({
   return (
     <section className="space-y-6">
       {/* Countdown Voice-Alarm Dual Sibling Timer Console */}
-      <div className="bg-slate-950 text-white rounded-2xl p-5 sm:p-6 border border-slate-800 space-y-5">
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-slate-800">
+      <div className="bg-slate-950 text-white rounded-2xl p-4 sm:p-6 border border-slate-800 space-y-4 sm:space-y-5">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 sm:gap-4 pb-4 border-b border-slate-800">
           <div className="space-y-1">
             <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 text-amber-400" />
+              <Clock className="w-4 h-4 text-amber-400 shrink-0" />
               <h2 className="text-base sm:text-lg font-bold tracking-tight text-white">
                 수현 · 다현 유튜브 카운트다운 알림 타이머
               </h2>
@@ -111,30 +111,30 @@ export const YoutubeTimerTab: React.FC<YoutubeTimerTabProps> = ({
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <div className="grid grid-cols-3 sm:flex items-center gap-1.5 sm:gap-2 shrink-0 w-full lg:w-auto">
             <button
               type="button"
               onClick={onTestAlarmSound}
-              className="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+              className="px-2 sm:px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 text-[11px] sm:text-xs font-semibold inline-flex items-center justify-center gap-1 sm:gap-1.5 transition-colors whitespace-nowrap"
             >
-              <Volume2 className="w-3.5 h-3.5" />
-              <span>알림음 테스트</span>
+              <Volume2 className="w-3.5 h-3.5 shrink-0" />
+              <span>알림 테스트</span>
             </button>
             <button
               type="button"
               onClick={onStartBothTimers}
-              className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+              className="px-2 sm:px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-[11px] sm:text-xs font-semibold inline-flex items-center justify-center gap-1 sm:gap-1.5 transition-colors whitespace-nowrap"
             >
-              <Play className="w-3.5 h-3.5 fill-current" />
-              <span>남매 동시 시작</span>
+              <Play className="w-3.5 h-3.5 fill-current shrink-0" />
+              <span>동시 시작</span>
             </button>
             <button
               type="button"
               onClick={onPauseBothTimers}
-              className="px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+              className="px-2 sm:px-3.5 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[11px] sm:text-xs font-semibold inline-flex items-center justify-center gap-1 sm:gap-1.5 transition-colors whitespace-nowrap"
             >
-              <Pause className="w-3.5 h-3.5 fill-current" />
-              <span>동시 일시정지</span>
+              <Pause className="w-3.5 h-3.5 fill-current shrink-0" />
+              <span>동시 정지</span>
             </button>
           </div>
         </div>
@@ -229,7 +229,7 @@ export const YoutubeTimerTab: React.FC<YoutubeTimerTabProps> = ({
                   {/* Countdown Readout */}
                   <div className="text-right shrink-0">
                     <div
-                      className={`font-mono text-3xl font-bold tracking-wider bg-slate-950 px-3.5 py-2 rounded-xl border tabular-nums ${
+                      className={`font-mono text-2xl sm:text-3xl font-bold tracking-wider bg-slate-950 px-2.5 sm:px-3.5 py-1.5 sm:py-2 rounded-xl border tabular-nums ${
                         isRinging || isFinished
                           ? 'text-red-400 border-red-800'
                           : 'text-amber-400 border-slate-800'
@@ -269,7 +269,7 @@ export const YoutubeTimerTab: React.FC<YoutubeTimerTabProps> = ({
                           type="button"
                           disabled={!canEditDuration || overRemaining}
                           onClick={() => onSetChildTimerMinutes(childKey, min)}
-                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold tabular-nums transition-colors ${
+                          className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold tabular-nums transition-colors ${
                             active
                               ? isBlue
                                 ? 'bg-blue-600 text-white'
@@ -291,7 +291,7 @@ export const YoutubeTimerTab: React.FC<YoutubeTimerTabProps> = ({
                           type="button"
                           disabled={!canEditDuration}
                           onClick={() => onSetChildTimerMinutes(childKey, sum.remainingMinutes)}
-                          className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold tabular-nums transition-colors ${
+                          className={`px-2.5 py-1.5 rounded-lg text-[11px] font-semibold tabular-nums transition-colors ${
                             tState.targetMinutes === sum.remainingMinutes
                               ? 'bg-emerald-600 text-white'
                               : !canEditDuration
@@ -471,7 +471,7 @@ export const YoutubeTimerTab: React.FC<YoutubeTimerTabProps> = ({
       {/* Time Bank & Activity History */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-5 items-start">
         {/* Time Bank (Left 2 columns) */}
-        <div className="lg:col-span-2 bg-white rounded-2xl p-6 border border-slate-200/90 space-y-6">
+        <div className="lg:col-span-2 bg-white rounded-2xl p-4 sm:p-6 border border-slate-200/90 space-y-5 sm:space-y-6">
           <div className="flex flex-wrap items-center justify-between gap-2 pb-4 border-b border-slate-100">
             <div className="flex items-center gap-3">
               <div className="w-10 h-10 rounded-xl bg-red-50 text-red-600 flex items-center justify-center shrink-0">
@@ -580,7 +580,7 @@ export const YoutubeTimerTab: React.FC<YoutubeTimerTabProps> = ({
                   </div>
                   <button
                     type="submit"
-                    className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold transition-colors whitespace-nowrap shrink-0"
+                    className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-sm font-semibold transition-colors whitespace-nowrap"
                   >
                     직접 차감
                   </button>
@@ -611,7 +611,7 @@ export const YoutubeTimerTab: React.FC<YoutubeTimerTabProps> = ({
         </div>
 
         {/* Activity Timeline Log (Right 1 column) */}
-        <div className="bg-white rounded-2xl p-5 border border-slate-200/90 space-y-4">
+        <div className="bg-white rounded-2xl p-4 sm:p-5 border border-slate-200/90 space-y-4">
           <div className="flex items-center justify-between pb-3 border-b border-slate-100">
             <div>
               <h3 className="text-sm font-bold text-slate-900">시간 차감 · 보충 내역</h3>
