@@ -46,28 +46,28 @@ export const StickerBoardTab: React.FC<StickerBoardTabProps> = ({
 
   return (
     <section className="space-y-5 sm:space-y-6">
-      <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200/90 space-y-5 sm:space-y-6">
+      <div className="bg-white/95 rounded-2xl p-4 sm:p-6 border border-[#EAE6E0] shadow-[0_2px_12px_-4px_rgba(68,64,60,0.06)] space-y-5 sm:space-y-6">
         {/* Header & Reward Goal */}
-        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-slate-100">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-5 border-b border-[#F2EFE9]">
           <div className="space-y-1">
             <div className="flex flex-wrap items-baseline gap-2.5">
-              <h2 className="text-base sm:text-lg font-bold tracking-tight text-slate-900">
+              <h2 className="text-base sm:text-lg font-bold tracking-tight text-[#2D2A32]">
                 {currentConfig.name} 칭찬스티커 100칸 보드
               </h2>
-              <span className="text-xs font-medium text-slate-500 tabular-nums">
+              <span className="text-xs font-medium text-stone-500 tabular-nums">
                 {currentData.stickerRound}회차 도전 · {stickers.length} / 100개 누적
               </span>
             </div>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-stone-500">
               주간 채점표와 별도로 운영되는 장기 보상 트랙입니다. 100개가 모일 때까지 초기화되지 않습니다.
             </p>
           </div>
 
           {/* 100-Sticker Reward Goal */}
-          <div className="bg-slate-50 border border-slate-200/90 rounded-xl px-4 py-3 flex items-center justify-between gap-3 w-full lg:w-auto lg:min-w-[260px]">
+          <div className="bg-[#F6F3FC] border border-[#E4DDF7] rounded-xl px-4 py-3 flex items-center justify-between gap-3 w-full lg:w-auto lg:min-w-[260px]">
             <div className="space-y-0.5 flex-1">
-              <div className="text-[11px] font-medium text-slate-500 flex items-center gap-1">
-                <Gift className="w-3.5 h-3.5 text-violet-600" />
+              <div className="text-[11px] font-medium text-[#6B5CA5] flex items-center gap-1">
+                <Gift className="w-3.5 h-3.5 text-[#7D63C9]" />
                 <span>100개 달성 목표 상품</span>
               </div>
               {editingGoal ? (
@@ -76,26 +76,26 @@ export const StickerBoardTab: React.FC<StickerBoardTabProps> = ({
                     type="text"
                     value={goalInput}
                     onChange={(e) => setGoalInput(e.target.value)}
-                    className="flex-1 px-2.5 py-1 rounded-lg border border-slate-300 text-xs font-semibold bg-white focus:outline-none focus:ring-2 focus:ring-slate-900"
+                    className="flex-1 px-2.5 py-1 rounded-lg border border-[#D4CCF0] text-xs font-semibold bg-white text-[#2D2A32] focus:outline-none focus:ring-2 focus:ring-[#8B82C4]"
                     placeholder="목표 상품 입력"
                   />
                   <button
                     type="button"
                     onClick={handleSaveGoalClick}
-                    className="px-2.5 py-1 rounded-lg bg-slate-900 text-white text-xs font-semibold whitespace-nowrap"
+                    className="px-2.5 py-1 rounded-lg bg-[#4B4670] text-white text-xs font-semibold whitespace-nowrap"
                   >
                     저장
                   </button>
                   <button
                     type="button"
                     onClick={() => setEditingGoal(false)}
-                    className="px-2 py-1 rounded-lg bg-slate-200 text-slate-700 text-xs font-medium whitespace-nowrap"
+                    className="px-2 py-1 rounded-lg bg-[#EAE5DD] text-stone-700 text-xs font-medium whitespace-nowrap"
                   >
                     취소
                   </button>
                 </div>
               ) : (
-                <div className="text-sm font-bold text-slate-900">{currentData.rewardGoal}</div>
+                <div className="text-sm font-bold text-[#2D2A32]">{currentData.rewardGoal}</div>
               )}
             </div>
 
@@ -106,7 +106,7 @@ export const StickerBoardTab: React.FC<StickerBoardTabProps> = ({
                   setGoalInput(currentData.rewardGoal);
                   setEditingGoal(true);
                 }}
-                className="p-2 rounded-lg bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 transition-colors shrink-0"
+                className="p-2 rounded-lg bg-white hover:bg-[#FAF8F5] text-[#6B5CA5] border border-[#E0D9F5] transition-colors shrink-0"
                 title="목표 상품 수정"
               >
                 <Edit3 className="w-4 h-4" />
@@ -119,16 +119,16 @@ export const StickerBoardTab: React.FC<StickerBoardTabProps> = ({
         {isParentMode ? (
           <form
             onSubmit={handleSubmitSticker}
-            className="bg-slate-50/80 p-3.5 sm:p-4 rounded-xl border border-slate-200/80 flex flex-col md:flex-row items-stretch md:items-center gap-3"
+            className="bg-[#FAF8F5] p-3.5 sm:p-4 rounded-xl border border-[#EAE6E0] flex flex-col md:flex-row items-stretch md:items-center gap-3"
           >
-            <div className="grid grid-cols-2 md:flex bg-white p-1 rounded-xl border border-slate-200 shrink-0">
+            <div className="grid grid-cols-2 md:flex bg-white p-1 rounded-xl border border-[#E6E2DC] shrink-0">
               <button
                 type="button"
                 onClick={() => setStickerGiver('MOM')}
                 className={`px-3.5 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap ${
                   stickerGiver === 'MOM'
-                    ? 'bg-pink-600 text-white'
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-[#FCE4EC] text-[#A83860] border border-[#F4BCD0]'
+                    : 'text-stone-600 hover:text-[#2D2A32]'
                 }`}
               >
                 <Heart className="w-3.5 h-3.5 fill-current" />
@@ -139,8 +139,8 @@ export const StickerBoardTab: React.FC<StickerBoardTabProps> = ({
                 onClick={() => setStickerGiver('DAD')}
                 className={`px-3.5 py-2 rounded-lg text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap ${
                   stickerGiver === 'DAD'
-                    ? 'bg-blue-600 text-white'
-                    : 'text-slate-600 hover:text-slate-900'
+                    ? 'bg-[#E3EEFF] text-[#2D5BA6] border border-[#BDD4F8]'
+                    : 'text-stone-600 hover:text-[#2D2A32]'
                 }`}
               >
                 <ThumbsUp className="w-3.5 h-3.5 fill-current" />
@@ -153,13 +153,13 @@ export const StickerBoardTab: React.FC<StickerBoardTabProps> = ({
               value={stickerReason}
               onChange={(e) => setStickerReason(e.target.value)}
               placeholder="칭찬 사유 입력 (예: 동생 양보하기, 스스로 책상 정리)"
-              className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-200 bg-white text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
+              className="flex-1 px-3.5 py-2.5 rounded-xl border border-[#DDD7CF] bg-white text-sm text-[#2D2A32] focus:outline-none focus:ring-2 focus:ring-[#8B82C4]"
             />
 
             <div className="flex flex-wrap items-center gap-2 shrink-0">
               <button
                 type="submit"
-                className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
+                className="flex-1 sm:flex-none px-4 py-2.5 rounded-xl bg-[#4B4670] hover:bg-[#3D385C] text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors whitespace-nowrap"
               >
                 <Plus className="w-4 h-4" />
                 <span>스티커 발급</span>
@@ -168,7 +168,7 @@ export const StickerBoardTab: React.FC<StickerBoardTabProps> = ({
                 <button
                   type="button"
                   onClick={onRemoveLastSticker}
-                  className="flex-1 sm:flex-none px-3 py-2.5 rounded-xl bg-white hover:bg-slate-100 text-slate-600 border border-slate-200 text-xs font-medium inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap"
+                  className="flex-1 sm:flex-none px-3 py-2.5 rounded-xl bg-white hover:bg-[#F3EFE9] text-stone-600 border border-[#E5E0D8] text-xs font-medium inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap"
                   title="방금 발급한 스티커 1개 취소"
                 >
                   <Trash2 className="w-3.5 h-3.5" />
@@ -179,20 +179,20 @@ export const StickerBoardTab: React.FC<StickerBoardTabProps> = ({
                 <button
                   type="button"
                   onClick={onResetStickerBoard}
-                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-amber-500 hover:bg-amber-600 text-slate-950 text-xs font-bold transition-colors whitespace-nowrap"
+                  className="w-full sm:w-auto px-4 py-2.5 rounded-xl bg-[#F6C86E] hover:bg-[#F1BC55] text-[#5C3A06] text-xs font-bold transition-colors whitespace-nowrap"
                 >
-                  100개 보상 완료 & 새 보드
+                  100개 보상 완료 &amp; 새 보드
                 </button>
               )}
             </div>
           </form>
         ) : (
-          <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 rounded-xl bg-slate-50 border border-slate-200/80 text-xs text-slate-600">
+          <div className="flex flex-wrap items-center justify-between gap-2 px-4 py-3 rounded-xl bg-[#FAF8F5] border border-[#EAE6E0] text-xs text-stone-600">
             <span className="inline-flex items-center gap-1.5">
-              <Lock className="w-3.5 h-3.5 text-slate-400" />
+              <Lock className="w-3.5 h-3.5 text-stone-400" />
               <span>자녀용 조회 모드입니다. 스티커 칸을 클릭하면 칭찬 메모를 자세히 볼 수 있습니다.</span>
             </span>
-            <span className="font-semibold text-slate-900 tabular-nums">
+            <span className="font-semibold text-[#2D2A32] tabular-nums">
               남은 목표 {Math.max(0, 100 - stickers.length)}개
             </span>
           </div>
@@ -200,22 +200,24 @@ export const StickerBoardTab: React.FC<StickerBoardTabProps> = ({
 
         {/* Selected Sticker Quick Inspector */}
         {selectedSticker && (
-          <div className="px-4 py-3 rounded-xl bg-slate-900 text-white text-xs flex items-start sm:items-center justify-between gap-3">
+          <div className="px-4 py-3 rounded-xl bg-[#4B4670] text-white text-xs flex items-start sm:items-center justify-between gap-3">
             <div className="flex flex-wrap items-center gap-2 sm:gap-2.5 min-w-0">
               <span
                 className={`px-2 py-0.5 rounded-md font-bold tabular-nums shrink-0 ${
-                  selectedSticker.sticker.giver === 'MOM' ? 'bg-pink-600' : 'bg-blue-600'
+                  selectedSticker.sticker.giver === 'MOM'
+                    ? 'bg-[#FCE4EC] text-[#A83860]'
+                    : 'bg-[#E3EEFF] text-[#2D5BA6]'
                 }`}
               >
                 #{selectedSticker.num} {selectedSticker.sticker.giver === 'MOM' ? '엄마' : '아빠'}
               </span>
               <span className="font-medium break-words">{selectedSticker.sticker.reason}</span>
-              <span className="text-slate-400 tabular-nums">({selectedSticker.sticker.date})</span>
+              <span className="text-white/75 tabular-nums">({selectedSticker.sticker.date})</span>
             </div>
             <button
               type="button"
               onClick={() => setSelectedSticker(null)}
-              className="text-slate-400 hover:text-white text-xs font-medium shrink-0"
+              className="text-white/80 hover:text-white text-xs font-medium shrink-0"
             >
               닫기
             </button>
@@ -244,15 +246,15 @@ export const StickerBoardTab: React.FC<StickerBoardTabProps> = ({
                 className={`h-12 sm:h-14 rounded-xl border flex flex-col items-center justify-center p-1 transition-all duration-150 tabular-nums ${
                   sticker
                     ? sticker.giver === 'MOM'
-                      ? `bg-pink-600 text-white border-pink-700 hover:bg-pink-700 cursor-pointer ${
-                          isSelected ? 'ring-2 ring-slate-900 ring-offset-1' : ''
+                      ? `bg-[#FCE4EC] text-[#A83860] border-[#F4BCD0] hover:bg-[#F9D5E1] cursor-pointer ${
+                          isSelected ? 'ring-2 ring-[#4B4670] ring-offset-1' : ''
                         }`
-                      : `bg-blue-600 text-white border-blue-700 hover:bg-blue-700 cursor-pointer ${
-                          isSelected ? 'ring-2 ring-slate-900 ring-offset-1' : ''
+                      : `bg-[#E3EEFF] text-[#2D5BA6] border-[#BDD4F8] hover:bg-[#D4E4FC] cursor-pointer ${
+                          isSelected ? 'ring-2 ring-[#4B4670] ring-offset-1' : ''
                         }`
                     : isMilestone
-                    ? 'bg-amber-50/70 border-amber-300/80 text-amber-800 font-bold cursor-default'
-                    : 'bg-slate-50/80 border-slate-200/80 text-slate-400 cursor-default'
+                    ? 'bg-[#FFF6DF] border-[#F5DFAA] text-[#9A6518] font-bold cursor-default'
+                    : 'bg-[#FAF8F5] border-[#EAE6E0] text-stone-400 cursor-default'
                 }`}
               >
                 {sticker ? (
@@ -270,7 +272,7 @@ export const StickerBoardTab: React.FC<StickerBoardTabProps> = ({
                   <>
                     <span className="text-xs font-mono font-semibold">{num}</span>
                     {isMilestone && (
-                      <span className="text-[9px] font-bold text-amber-700">
+                      <span className="text-[9px] font-bold text-[#9A6518]">
                         {num === 100 ? 'GOAL' : '★'}
                       </span>
                     )}
@@ -283,16 +285,16 @@ export const StickerBoardTab: React.FC<StickerBoardTabProps> = ({
       </div>
 
       {/* Praise Sticker History List */}
-      <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200/90 space-y-4">
-        <div className="flex items-center justify-between pb-3 border-b border-slate-100">
-          <h3 className="text-sm font-bold text-slate-900">엄마·아빠 칭찬스티커 발급 기록</h3>
-          <span className="text-xs font-medium text-slate-500 tabular-nums">
+      <div className="bg-white/95 rounded-2xl p-4 sm:p-6 border border-[#EAE6E0] shadow-[0_2px_12px_-4px_rgba(68,64,60,0.06)] space-y-4">
+        <div className="flex items-center justify-between pb-3 border-b border-[#F2EFE9]">
+          <h3 className="text-sm font-bold text-[#2D2A32]">엄마·아빠 칭찬스티커 발급 기록</h3>
+          <span className="text-xs font-medium text-stone-500 tabular-nums">
             총 {stickers.length}개
           </span>
         </div>
 
         {stickers.length === 0 ? (
-          <div className="text-center py-10 text-xs text-slate-400">
+          <div className="text-center py-10 text-xs text-stone-400">
             아직 발급된 칭찬스티커가 없습니다.
           </div>
         ) : (
@@ -305,18 +307,20 @@ export const StickerBoardTab: React.FC<StickerBoardTabProps> = ({
                 return (
                   <div
                     key={st.id}
-                    className="p-3.5 rounded-xl border border-slate-200/80 bg-slate-50/50 flex items-start gap-3 text-xs"
+                    className="p-3.5 rounded-xl border border-[#EAE6E0] bg-[#FAF8F5] flex items-start gap-3 text-xs"
                   >
                     <span
-                      className={`px-2 py-1 rounded-lg font-bold text-white shrink-0 tabular-nums ${
-                        st.giver === 'MOM' ? 'bg-pink-600' : 'bg-blue-600'
+                      className={`px-2 py-1 rounded-lg font-bold border shrink-0 tabular-nums ${
+                        st.giver === 'MOM'
+                          ? 'bg-[#FCE4EC] text-[#A83860] border-[#F4BCD0]'
+                          : 'bg-[#E3EEFF] text-[#2D5BA6] border-[#BDD4F8]'
                       }`}
                     >
                       #{realNum} {st.giver === 'MOM' ? '엄마' : '아빠'}
                     </span>
                     <div className="space-y-1 min-w-0">
-                      <div className="font-semibold text-slate-800 leading-snug">{st.reason}</div>
-                      <div className="text-[11px] text-slate-400 tabular-nums">{st.date}</div>
+                      <div className="font-semibold text-[#2D2A32] leading-snug">{st.reason}</div>
+                      <div className="text-[11px] text-stone-400 tabular-nums">{st.date}</div>
                     </div>
                   </div>
                 );

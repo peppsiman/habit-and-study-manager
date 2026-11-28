@@ -2979,7 +2979,7 @@ export default function App() {
         return {
           label: storageType === 'local-file' ? '로컬 서버 동기화' : '클라우드 동기화',
           shortLabel: '동기화됨',
-          tone: 'bg-emerald-50 text-emerald-700 border-emerald-200 hover:bg-emerald-100',
+          tone: 'bg-[#E3F6EE] text-[#176448] border-[#BBE5D3] hover:bg-[#D4F0E4]',
           spin: false,
           Icon: Cloud
         };
@@ -2988,7 +2988,7 @@ export default function App() {
         return {
           label: syncStatus === 'loading' ? '불러오는 중...' : '동기화 중...',
           shortLabel: '동기화 중',
-          tone: 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100',
+          tone: 'bg-[#EAF2FF] text-[#285399] border-[#C6DAFC] hover:bg-[#DCE9FE]',
           spin: true,
           Icon: RefreshCw
         };
@@ -2996,7 +2996,7 @@ export default function App() {
         return {
           label: '동기화 오류 · 재시도',
           shortLabel: '재시도',
-          tone: 'bg-rose-50 text-rose-700 border-rose-200 hover:bg-rose-100',
+          tone: 'bg-[#FFEAE8] text-[#B8413A] border-[#F8C4BF] hover:bg-[#FFDAD7]',
           spin: false,
           Icon: CloudOff
         };
@@ -3004,7 +3004,7 @@ export default function App() {
         return {
           label: '브라우저 로컬 전용',
           shortLabel: '로컬 전용',
-          tone: 'bg-slate-100 text-slate-600 border-slate-200 hover:bg-slate-200/70',
+          tone: 'bg-[#F3F0EB] text-stone-600 border-[#E5E0D8] hover:bg-[#EAE5DD]',
           spin: false,
           Icon: CloudOff
         };
@@ -3019,9 +3019,9 @@ export default function App() {
           <div
             role="status"
             aria-live="polite"
-            className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-5 sm:bottom-5 z-50 sm:max-w-sm bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl border border-slate-800 flex items-center gap-3"
+            className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-5 sm:bottom-5 z-50 sm:max-w-sm bg-[#3E3A5C]/95 backdrop-blur-md text-white px-4 py-3 rounded-xl shadow-lg border border-[#544F7A] flex items-center gap-3"
           >
-            <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+            <Sparkles className="w-4 h-4 text-[#F9D57D] shrink-0" />
             <span className="text-xs sm:text-sm font-medium leading-snug">{toastMessage.msg}</span>
           </div>
         )}
@@ -3042,15 +3042,15 @@ export default function App() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900 flex">
+    <div className="min-h-screen text-[#2D2A32] flex">
       {/* Toast Notification */}
       {toastMessage && (
         <div
           role="status"
           aria-live="polite"
-          className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-5 sm:bottom-5 z-50 sm:max-w-sm bg-slate-900 text-white px-4 py-3 rounded-xl shadow-xl border border-slate-800 flex items-center gap-3"
+          className="fixed bottom-4 left-4 right-4 sm:left-auto sm:right-5 sm:bottom-5 z-50 sm:max-w-sm bg-[#3E3A5C]/95 backdrop-blur-md text-white px-4 py-3 rounded-xl shadow-lg border border-[#544F7A] flex items-center gap-3"
         >
-          <Sparkles className="w-4 h-4 text-amber-400 shrink-0" />
+          <Sparkles className="w-4 h-4 text-[#F9D57D] shrink-0" />
           <span className="text-xs sm:text-sm font-medium leading-snug">{toastMessage.msg}</span>
         </div>
       )}
@@ -3058,10 +3058,10 @@ export default function App() {
       {/* ==========================================
           Desktop Sidebar Navigation (272px)
       ========================================== */}
-      <aside className="hidden lg:flex lg:flex-col lg:w-[272px] shrink-0 bg-white border-r border-slate-200/90 sticky top-0 h-screen">
+      <aside className="hidden lg:flex lg:flex-col lg:w-[272px] shrink-0 bg-white/90 backdrop-blur-md border-r border-[#EAE6E0] sticky top-0 h-screen">
         {/* Brand Header */}
-        <div className="h-14 px-5 flex items-center border-b border-slate-200/80">
-          <span className="text-sm font-bold tracking-tight text-slate-900 whitespace-nowrap">
+        <div className="h-14 px-5 flex items-center border-b border-[#EAE6E0]">
+          <span className="text-sm font-bold tracking-tight text-[#2D2A32] whitespace-nowrap">
             수현·다현 학습 매니저
           </span>
         </div>
@@ -3069,7 +3069,7 @@ export default function App() {
         <div className="flex-1 overflow-y-auto p-4 space-y-6">
           {/* Child Switcher (Parent sees both; Child sees own profile only) */}
           <div className="space-y-2">
-            <div className="px-1 text-[11px] font-semibold text-slate-400">
+            <div className="px-1 text-[11px] font-semibold text-stone-400">
               {authRole === 'parent' ? '자녀 프로필' : '내 프로필'}
             </div>
             <div className="space-y-1.5">
@@ -3089,9 +3089,9 @@ export default function App() {
                       className={`w-full px-3 py-2.5 rounded-xl border text-left transition-colors flex items-center justify-between gap-2 ${
                         isActive
                           ? isBlue
-                            ? 'bg-blue-50/70 border-blue-200 text-slate-900'
-                            : 'bg-rose-50/70 border-rose-200 text-slate-900'
-                          : 'bg-white border-transparent hover:bg-slate-50 text-slate-600'
+                            ? 'bg-[#EBF3FF] border-[#C8DDFC] text-[#285399]'
+                            : 'bg-[#FFF0F4] border-[#F9CAD8] text-[#A63A5D]'
+                          : 'bg-transparent border-transparent hover:bg-[#F6F4F0] text-stone-600'
                       }`}
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
@@ -3099,27 +3099,27 @@ export default function App() {
                           className={`w-7 h-7 rounded-lg text-xs font-bold flex items-center justify-center shrink-0 ${
                             isActive
                               ? isBlue
-                                ? 'bg-blue-600 text-white'
-                                : 'bg-rose-600 text-white'
-                              : 'bg-slate-100 text-slate-700'
+                                ? 'bg-[#6B9CE8] text-white'
+                                : 'bg-[#E2849B] text-white'
+                              : 'bg-[#F3F0EB] text-stone-600'
                           }`}
                         >
                           {cfg.name.slice(0, 1)}
                         </span>
                         <div className="min-w-0">
-                          <div className="text-sm font-bold leading-tight truncate">
+                          <div className="text-sm font-bold leading-tight truncate text-[#2D2A32]">
                             {cfg.name}{' '}
-                            <span className="text-[11px] font-medium text-slate-400">
+                            <span className="text-[11px] font-medium text-stone-400">
                               {cfg.info}
                             </span>
                           </div>
-                          <div className="text-[11px] text-slate-500 tabular-nums mt-0.5">
+                          <div className="text-[11px] text-stone-500 tabular-nums mt-0.5">
                             {sum.totalScore} / {sum.effectiveWeeklyMaxScore}점
                           </div>
                         </div>
                       </div>
                       {running && (
-                        <span className="text-[10px] font-semibold text-amber-600 shrink-0">
+                        <span className="text-[10px] font-semibold text-[#A66512] bg-[#FEF2D6] px-1.5 py-0.5 rounded-md shrink-0">
                           타이머
                         </span>
                       )}
@@ -3132,7 +3132,7 @@ export default function App() {
 
           {/* Primary Workspace Nav */}
           <div className="space-y-1.5">
-            <div className="px-1 text-[11px] font-semibold text-slate-400">메뉴</div>
+            <div className="px-1 text-[11px] font-semibold text-stone-400">메뉴</div>
             <nav className="space-y-1">
               {visibleTabs.map((item) => {
                 const Icon = item.icon;
@@ -3142,10 +3142,10 @@ export default function App() {
                     key={item.key}
                     type="button"
                     onClick={() => setActiveTab(item.key)}
-                    className={`w-full px-3 py-2.5 rounded-xl text-xs font-semibold flex items-center justify-between gap-2 transition-colors whitespace-nowrap ${
+                    className={`w-full px-3 py-2.5 rounded-xl text-xs flex items-center justify-between gap-2 transition-colors whitespace-nowrap ${
                       isActive
-                        ? 'bg-slate-900 text-white'
-                        : 'text-slate-600 hover:bg-slate-100 hover:text-slate-900'
+                        ? 'bg-[#EFEBFD] text-[#4A3F8C] font-bold'
+                        : 'font-semibold text-stone-600 hover:bg-[#F6F4F0] hover:text-[#2D2A32]'
                     }`}
                   >
                     <span className="inline-flex items-center gap-2.5">
@@ -3155,7 +3155,7 @@ export default function App() {
                     {item.key === 'youtube' && (
                       <span
                         className={`font-mono text-[11px] tabular-nums ${
-                          isActive ? 'text-slate-300' : 'text-slate-400'
+                          isActive ? 'text-[#6A5CB5]' : 'text-stone-400'
                         }`}
                       >
                         {scoreSummary.remainingMinutes}m
@@ -3164,7 +3164,7 @@ export default function App() {
                     {item.key === 'sticker' && (
                       <span
                         className={`font-mono text-[11px] tabular-nums ${
-                          isActive ? 'text-slate-300' : 'text-slate-400'
+                          isActive ? 'text-[#6A5CB5]' : 'text-stone-400'
                         }`}
                       >
                         {(currentData.stickers || []).length}/100
@@ -3178,16 +3178,16 @@ export default function App() {
 
           {/* Compact Live Timer Dock (shown in sidebar when not on YouTube tab) */}
           {activeTab !== 'youtube' && (
-            <div className="rounded-xl bg-slate-950 text-white p-3.5 border border-slate-800 space-y-3">
+            <div className="rounded-2xl bg-gradient-to-br from-[#F4F2FC] to-[#EEF4FC] text-[#2D2A32] p-3.5 border border-[#DFDCF2] space-y-3">
               <div className="flex items-center justify-between">
-                <span className="text-[11px] font-semibold text-slate-300 inline-flex items-center gap-1.5">
-                  <Clock className="w-3.5 h-3.5 text-amber-400" />
+                <span className="text-[11px] font-bold text-[#4B4670] inline-flex items-center gap-1.5">
+                  <Clock className="w-3.5 h-3.5 text-[#7567B8]" />
                   <span>유튜브 알림 타이머</span>
                 </span>
                 <button
                   type="button"
                   onClick={() => setActiveTab('youtube')}
-                  className="text-[11px] font-medium text-slate-400 hover:text-white transition-colors"
+                  className="text-[11px] font-semibold text-[#6E65A3] hover:text-[#3D3570] transition-colors"
                 >
                   상세
                 </button>
@@ -3208,24 +3208,24 @@ export default function App() {
                     return (
                       <div
                         key={ck}
-                        className={`p-2.5 rounded-lg border space-y-2 ${
+                        className={`p-2.5 rounded-xl border space-y-2 ${
                           isRinging
-                            ? 'bg-red-950/60 border-red-500 animate-pulse'
-                            : 'bg-slate-900 border-slate-800'
+                            ? 'bg-[#FFF2F1] border-[#F2A7A1] animate-pulse'
+                            : 'bg-white/95 border-[#E6E2F4]'
                         }`}
                       >
                         <div className="flex items-center justify-between text-xs">
-                          <span className="font-semibold text-slate-200">{cfg.name}</span>
+                          <span className="font-bold text-[#2D2A32]">{cfg.name}</span>
                           <span
                             className={`font-mono font-bold tabular-nums ${
-                              isRinging || isFinished ? 'text-red-400' : 'text-amber-400'
+                              isRinging || isFinished ? 'text-[#C94942]' : 'text-[#4B4670]'
                             }`}
                           >
                             {formatTimer(t.remainingSeconds)}
                           </span>
                         </div>
                         <div className="flex items-center justify-between gap-1.5">
-                          <span className="text-[11px] text-slate-400 tabular-nums">
+                          <span className="text-[11px] text-stone-500 tabular-nums">
                             설정 {t.targetMinutes}분 · 잔여 {sum.remainingMinutes}분
                           </span>
                           {isParentMode && (
@@ -3234,7 +3234,7 @@ export default function App() {
                                 <button
                                   type="button"
                                   onClick={() => handleDismissChildAlarm(ck)}
-                                  className="px-2 py-1 rounded-md bg-red-600 hover:bg-red-500 text-white text-[11px] font-semibold transition-colors"
+                                  className="px-2 py-1 rounded-lg bg-[#E26D65] hover:bg-[#D35B53] text-white text-[11px] font-semibold transition-colors"
                                 >
                                   알림 해제
                                 </button>
@@ -3243,7 +3243,7 @@ export default function App() {
                                   <button
                                     type="button"
                                     onClick={() => handleDeductChildTimer(ck, 'target')}
-                                    className="px-2 py-1 rounded-md bg-red-600 hover:bg-red-500 text-white text-[11px] font-semibold tabular-nums transition-colors"
+                                    className="px-2 py-1 rounded-lg bg-[#E26D65] hover:bg-[#D35B53] text-white text-[11px] font-semibold tabular-nums transition-colors"
                                   >
                                     -{Math.min(t.targetMinutes, sum.remainingMinutes)}분 차감
                                   </button>
@@ -3253,12 +3253,12 @@ export default function App() {
                                   type="button"
                                   disabled={isDisabled}
                                   onClick={() => handleToggleChildTimer(ck)}
-                                  className={`px-2 py-1 rounded-md text-[11px] font-semibold inline-flex items-center gap-1 transition-colors ${
+                                  className={`px-2 py-1 rounded-lg text-[11px] font-semibold inline-flex items-center gap-1 transition-colors ${
                                     isDisabled
-                                      ? 'bg-slate-800 text-slate-600 cursor-not-allowed'
+                                      ? 'bg-[#F1EEEA] text-stone-400 cursor-not-allowed'
                                       : t.isRunning
-                                      ? 'bg-amber-500 text-slate-950 hover:bg-amber-400'
-                                      : 'bg-emerald-600 text-white hover:bg-emerald-500'
+                                      ? 'bg-[#F6C86E] text-[#5C3A06] hover:bg-[#F1BC55]'
+                                      : 'bg-[#3DA87E] text-white hover:bg-[#31926C]'
                                   }`}
                                 >
                                   {t.isRunning ? (
@@ -3287,12 +3287,12 @@ export default function App() {
         </div>
 
         {/* Sidebar Bottom Access Mode Panel */}
-        <div className="p-4 border-t border-slate-200/80 space-y-2.5 bg-slate-50/50">
+        <div className="p-4 border-t border-[#EAE6E0] space-y-2.5 bg-[#FAF8F5]/80">
           <button
             type="button"
             onClick={() => void syncFromCloud(true)}
             title="클라우드 동기화 새로고침"
-            className={`w-full px-2.5 py-1.5 rounded-lg border text-[11px] font-semibold flex items-center justify-between gap-2 transition-colors ${syncBadgeMeta.tone}`}
+            className={`w-full px-2.5 py-1.5 rounded-xl border text-[11px] font-semibold flex items-center justify-between gap-2 transition-colors ${syncBadgeMeta.tone}`}
           >
             <span className="inline-flex items-center gap-1.5 min-w-0 truncate">
               <SyncBadgeIcon
@@ -3304,15 +3304,15 @@ export default function App() {
           </button>
 
           <div className="flex items-center justify-between text-xs">
-            <span className="inline-flex items-center gap-1.5 font-semibold text-slate-700">
+            <span className="inline-flex items-center gap-1.5 font-semibold text-[#2D2A32]">
               {isParentMode ? (
                 <>
-                  <ShieldCheck className="w-4 h-4 text-emerald-600" />
+                  <ShieldCheck className="w-4 h-4 text-[#238763]" />
                   <span>부모님 관리 모드</span>
                 </>
               ) : (
                 <>
-                  <Lock className="w-4 h-4 text-blue-600" />
+                  <Lock className="w-4 h-4 text-[#5A87D1]" />
                   <span>{currentConfig.name} 로그인</span>
                 </>
               )}
@@ -3324,7 +3324,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={openPasswordChangeModal}
-                className="flex-1 px-2.5 py-2 rounded-xl bg-white hover:bg-slate-100 border border-slate-200 text-[11px] font-semibold text-slate-700 inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap"
+                className="flex-1 px-2.5 py-2 rounded-xl bg-white hover:bg-[#F3EFE9] border border-[#E5E0D8] text-[11px] font-semibold text-stone-700 inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap"
               >
                 <KeyRound className="w-3 h-3" />
                 <span>비번 변경</span>
@@ -3332,7 +3332,7 @@ export default function App() {
               <button
                 type="button"
                 onClick={handleLogout}
-                className="flex-1 px-2.5 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-[11px] font-semibold inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap"
+                className="flex-1 px-2.5 py-2 rounded-xl bg-[#4B4670] hover:bg-[#3D385C] text-white text-[11px] font-semibold inline-flex items-center justify-center gap-1 transition-colors whitespace-nowrap"
               >
                 <LogOut className="w-3 h-3" />
                 <span>로그아웃</span>
@@ -3342,7 +3342,7 @@ export default function App() {
             <button
               type="button"
               onClick={handleLogout}
-              className="w-full px-3 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors"
+              className="w-full px-3 py-2 rounded-xl bg-[#4B4670] hover:bg-[#3D385C] text-white text-xs font-semibold inline-flex items-center justify-center gap-1.5 transition-colors"
             >
               <LogOut className="w-3.5 h-3.5" />
               <span>로그아웃 (계정 전환)</span>
@@ -3356,14 +3356,14 @@ export default function App() {
       ========================================== */}
       <div className="flex-1 min-w-0 flex flex-col">
         {/* Top Bar (Strict 1-row, 3-zone contract, <= 15% mobile height) */}
-        <header className="sticky top-0 z-30 h-14 bg-white/95 backdrop-blur-md border-b border-slate-200/90 px-3 sm:px-6 flex items-center justify-between gap-2 sm:gap-4">
+        <header className="sticky top-0 z-30 h-14 bg-white/80 backdrop-blur-lg border-b border-[#EAE6E0] px-3 sm:px-6 flex items-center justify-between gap-2 sm:gap-4">
           {/* Zone 1: Single-line Title / Breadcrumb */}
           <div className="flex items-center gap-2 min-w-0">
-            <span className="lg:hidden text-sm font-bold tracking-tight text-slate-900 truncate">
+            <span className="lg:hidden text-sm font-bold tracking-tight text-[#2D2A32] truncate">
               {authRole === 'parent' ? '수현·다현 매니저' : `${currentConfig.name} 매니저`}
             </span>
-            <div className="hidden lg:flex items-center gap-2 text-xs text-slate-500 whitespace-nowrap">
-              <span className="font-semibold text-slate-900">
+            <div className="hidden lg:flex items-center gap-2 text-xs text-stone-500 whitespace-nowrap">
+              <span className="font-semibold text-[#2D2A32]">
                 {currentConfig.name} ({currentConfig.info})
               </span>
               <span aria-hidden="true">/</span>
@@ -3372,9 +3372,9 @@ export default function App() {
           </div>
 
           {/* Zone 2: Clean unboxed mode descriptor */}
-          <div className="hidden md:flex items-center gap-2 text-xs text-slate-500 whitespace-nowrap">
+          <div className="hidden md:flex items-center gap-2 text-xs text-stone-500 whitespace-nowrap">
             {isParentMode ? (
-              <span className="inline-flex items-center gap-1.5 font-semibold text-emerald-700">
+              <span className="inline-flex items-center gap-1.5 font-semibold text-[#1E7254]">
                 <Unlock className="w-3.5 h-3.5" />
                 <span>부모님 관리 모드 · 단독 제어 활성화</span>
               </span>
@@ -3405,8 +3405,8 @@ export default function App() {
               onClick={handleLogout}
               className={`px-2.5 sm:px-3.5 py-1.5 rounded-xl text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0 ${
                 isParentMode
-                  ? 'bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200'
-                  : 'bg-slate-900 hover:bg-slate-800 text-white'
+                  ? 'bg-[#E3F6EE] hover:bg-[#D4F0E4] text-[#176448] border border-[#BBE5D3]'
+                  : 'bg-[#4B4670] hover:bg-[#3D385C] text-white'
               }`}
             >
               <LogOut className="w-3.5 h-3.5" />
@@ -3420,7 +3420,7 @@ export default function App() {
           {/* Mobile & Tablet Child Switcher + Nav Tabs */}
           <div className="lg:hidden space-y-2.5 sm:space-y-3">
             {authRole === 'parent' && (
-              <div className="grid grid-cols-2 gap-2 bg-slate-200/70 p-1 rounded-xl">
+              <div className="grid grid-cols-2 gap-2 bg-[#F1EEE9] p-1 rounded-xl">
                 {(['suhyun', 'dahyun'] as ChildKey[]).map((ck) => {
                   const cfg = CHILDREN_CONFIG[ck];
                   const sum = summaries[ck];
@@ -3435,13 +3435,13 @@ export default function App() {
                       className={`px-3 py-2 rounded-lg text-xs font-bold flex items-center justify-center gap-1.5 transition-colors tabular-nums whitespace-nowrap ${
                         isActive
                           ? isBlue
-                            ? 'bg-blue-600 text-white shadow-xs'
-                            : 'bg-rose-600 text-white shadow-xs'
-                          : 'text-slate-600 hover:text-slate-900'
+                            ? 'bg-[#6B9CE8] text-white shadow-xs'
+                            : 'bg-[#E2849B] text-white shadow-xs'
+                          : 'text-stone-600 hover:text-[#2D2A32]'
                       }`}
                     >
                       <span>{cfg.name}</span>
-                      <span className={isActive ? 'text-white/80' : 'text-slate-400'}>
+                      <span className={isActive ? 'text-white/85' : 'text-stone-400'}>
                         {sum.totalScore}/{sum.effectiveWeeklyMaxScore}
                       </span>
                     </button>
@@ -3451,7 +3451,7 @@ export default function App() {
             )}
 
             <div
-              className={`grid gap-1 sm:gap-1.5 bg-white p-1 sm:p-1.5 rounded-xl border border-slate-200 ${
+              className={`grid gap-1 sm:gap-1.5 bg-white/95 p-1 sm:p-1.5 rounded-xl border border-[#EAE6E0] shadow-[0_2px_10px_-4px_rgba(68,64,60,0.06)] ${
                 visibleTabs.length === 4 ? 'grid-cols-4' : 'grid-cols-3'
               }`}
             >
@@ -3464,7 +3464,7 @@ export default function App() {
                     type="button"
                     onClick={() => setActiveTab(item.key)}
                     className={`px-1.5 sm:px-3 py-2 rounded-lg text-[11px] sm:text-xs font-semibold flex flex-col sm:flex-row items-center justify-center gap-1 sm:gap-1.5 transition-colors whitespace-nowrap ${
-                      isActive ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+                      isActive ? 'bg-[#4B4670] text-white' : 'text-stone-600 hover:bg-[#F5F2ED]'
                     }`}
                   >
                     <Icon className="w-3.5 h-3.5 shrink-0" />
@@ -3476,16 +3476,16 @@ export default function App() {
 
             {/* Mobile Compact Timer Strip */}
             {activeTab !== 'youtube' && (
-              <div className="bg-slate-950 text-white rounded-xl p-3 border border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-                <div className="flex items-center justify-between sm:justify-start gap-2 text-xs font-semibold text-slate-300">
+              <div className="bg-gradient-to-br from-[#F4F2FC] to-[#EEF4FC] text-[#2D2A32] rounded-2xl p-3 border border-[#DFDCF2] flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div className="flex items-center justify-between sm:justify-start gap-2 text-xs font-bold text-[#4B4670]">
                   <span className="inline-flex items-center gap-1.5">
-                    <Clock className="w-3.5 h-3.5 text-amber-400" />
+                    <Clock className="w-3.5 h-3.5 text-[#7567B8]" />
                     <span>유튜브 알림 타이머</span>
                   </span>
                   <button
                     type="button"
                     onClick={() => setActiveTab('youtube')}
-                    className="text-[11px] text-slate-400 hover:text-white underline"
+                    className="text-[11px] font-semibold text-[#6E65A3] hover:text-[#3D3570] underline"
                   >
                     상세 보기
                   </button>
@@ -3509,22 +3509,22 @@ export default function App() {
                       return (
                         <div
                           key={ck}
-                          className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-lg border text-xs ${
+                          className={`flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl border text-xs ${
                             isRinging
-                              ? 'bg-red-950/60 border-red-500 animate-pulse'
-                              : 'bg-slate-900 border-slate-800'
+                              ? 'bg-[#FFF2F1] border-[#F2A7A1] animate-pulse'
+                              : 'bg-white/95 border-[#E6E2F4]'
                           }`}
                         >
                           <div className="min-w-0">
-                            <div className="font-semibold text-slate-200 truncate">
+                            <div className="font-bold text-[#2D2A32] truncate">
                               {cfg.name}{' '}
-                              <span className="text-[10px] font-normal text-slate-400">
+                              <span className="text-[10px] font-normal text-stone-400">
                                 ({t.targetMinutes}분)
                               </span>
                             </div>
                             <div
                               className={`font-mono font-bold tabular-nums ${
-                                isRinging || isFinished ? 'text-red-400' : 'text-amber-400'
+                                isRinging || isFinished ? 'text-[#C94942]' : 'text-[#4B4670]'
                               }`}
                             >
                               {formatTimer(t.remainingSeconds)}
@@ -3536,7 +3536,7 @@ export default function App() {
                                 <button
                                   type="button"
                                   onClick={() => handleDismissChildAlarm(ck)}
-                                  className="px-2 py-1 rounded-md bg-red-600 text-white text-[11px] font-semibold shrink-0"
+                                  className="px-2 py-1 rounded-lg bg-[#E26D65] text-white text-[11px] font-semibold shrink-0"
                                 >
                                   해제
                                 </button>
@@ -3545,7 +3545,7 @@ export default function App() {
                                   <button
                                     type="button"
                                     onClick={() => handleDeductChildTimer(ck, 'target')}
-                                    className="px-2 py-1 rounded-md bg-red-600 text-white text-[11px] font-semibold shrink-0"
+                                    className="px-2 py-1 rounded-lg bg-[#E26D65] text-white text-[11px] font-semibold shrink-0"
                                   >
                                     차감
                                   </button>
@@ -3555,12 +3555,12 @@ export default function App() {
                                   type="button"
                                   disabled={isDisabled}
                                   onClick={() => handleToggleChildTimer(ck)}
-                                  className={`px-2 py-1 rounded-md text-[11px] font-semibold shrink-0 ${
+                                  className={`px-2 py-1 rounded-lg text-[11px] font-semibold shrink-0 ${
                                     isDisabled
-                                      ? 'bg-slate-800 text-slate-600'
+                                      ? 'bg-[#F1EEEA] text-stone-400'
                                       : t.isRunning
-                                      ? 'bg-amber-500 text-slate-950'
-                                      : 'bg-emerald-600 text-white'
+                                      ? 'bg-[#F6C86E] text-[#5C3A06]'
+                                      : 'bg-[#3DA87E] text-white'
                                   }`}
                                 >
                                   {t.isRunning ? '정지' : '시작'}
@@ -3578,18 +3578,18 @@ export default function App() {
           </div>
 
           {/* Calendar Week Navigator Bar (Cumulative Weekly History) */}
-          <section className="bg-white rounded-2xl border border-slate-200/90 px-3.5 sm:px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3">
+          <section className="bg-white/95 rounded-2xl border border-[#EAE6E0] shadow-[0_2px_12px_-4px_rgba(68,64,60,0.06)] px-3.5 sm:px-4 py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 sm:gap-3">
             <div className="flex items-center gap-2 flex-wrap">
-              <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-slate-600">
-                <Calendar className="w-4 h-4 text-blue-600" />
+              <div className="inline-flex items-center gap-1.5 text-xs font-semibold text-stone-600">
+                <Calendar className="w-4 h-4 text-[#6B9CE8]" />
                 <span>주간 달력 기록</span>
               </div>
               {isViewingCurrentWeek ? (
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-[#DCF5EA] text-[#176448] border border-[#B2E6D0]">
                   이번 주
                 </span>
               ) : (
-                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-amber-50 text-amber-700 border border-amber-200">
+                <span className="text-[11px] font-bold px-2 py-0.5 rounded-full bg-[#FEF2D6] text-[#9A5B13] border border-[#F8DC9F]">
                   과거/다른 주 조회 중
                 </span>
               )}
@@ -3597,7 +3597,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => handleSelectWeek(realCurrentWeekId)}
-                  className="ml-auto sm:hidden px-2.5 py-1 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-semibold transition-colors whitespace-nowrap"
+                  className="ml-auto sm:hidden px-2.5 py-1 rounded-lg bg-[#6B9CE8] hover:bg-[#588BD9] text-white text-[11px] font-semibold transition-colors whitespace-nowrap"
                 >
                   이번 주로
                 </button>
@@ -3609,7 +3609,7 @@ export default function App() {
                 type="button"
                 onClick={() => handleSelectWeek(shiftWeekId(selectedWeekId, -1))}
                 aria-label="이전 주"
-                className="px-2.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold inline-flex items-center gap-1 transition-colors shrink-0"
+                className="px-2.5 py-1.5 rounded-xl bg-[#FAF8F5] hover:bg-[#F2EFEA] border border-[#E6E2DC] text-stone-700 text-xs font-semibold inline-flex items-center gap-1 transition-colors shrink-0"
               >
                 <ChevronLeft className="w-3.5 h-3.5" />
                 <span className="hidden sm:inline">이전 주</span>
@@ -3619,7 +3619,7 @@ export default function App() {
                 value={selectedWeekId}
                 onChange={(e) => handleSelectWeek(e.target.value)}
                 aria-label="조회할 주차 선택"
-                className="flex-1 sm:flex-none min-w-0 px-2.5 sm:px-3 py-1.5 rounded-xl border border-slate-200 bg-slate-50 text-xs font-bold text-slate-900 tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="flex-1 sm:flex-none min-w-0 px-2.5 sm:px-3 py-1.5 rounded-xl border border-[#E6E2DC] bg-[#FAF8F5] text-xs font-bold text-[#2D2A32] tabular-nums focus:outline-none focus:ring-2 focus:ring-[#8B82C4]"
               >
                 {availableWeekIds.map((wid) => (
                   <option key={wid} value={wid}>
@@ -3633,10 +3633,10 @@ export default function App() {
                 onClick={() => handleSelectWeek(shiftWeekId(selectedWeekId, 1))}
                 disabled={selectedWeekId >= realCurrentWeekId}
                 aria-label="다음 주"
-                className={`px-2.5 py-1.5 rounded-xl text-xs font-semibold inline-flex items-center gap-1 transition-colors shrink-0 ${
+                className={`px-2.5 py-1.5 rounded-xl border text-xs font-semibold inline-flex items-center gap-1 transition-colors shrink-0 ${
                   selectedWeekId >= realCurrentWeekId
-                    ? 'bg-slate-50 text-slate-300 cursor-not-allowed'
-                    : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                    ? 'bg-[#FAF8F5] border-[#EFECE7] text-stone-300 cursor-not-allowed'
+                    : 'bg-[#FAF8F5] hover:bg-[#F2EFEA] border-[#E6E2DC] text-stone-700'
                 }`}
               >
                 <span className="hidden sm:inline">다음 주</span>
@@ -3647,7 +3647,7 @@ export default function App() {
                 <button
                   type="button"
                   onClick={() => handleSelectWeek(realCurrentWeekId)}
-                  className="hidden sm:inline-flex px-2.5 py-1.5 rounded-xl bg-blue-600 hover:bg-blue-700 text-white text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
+                  className="hidden sm:inline-flex px-2.5 py-1.5 rounded-xl bg-[#6B9CE8] hover:bg-[#588BD9] text-white text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
                 >
                   이번 주로
                 </button>
@@ -3655,7 +3655,7 @@ export default function App() {
             </div>
           </section>
 
-          {/* 4-Column KPI Metric Strip (Single-Elevation, Zero-Pill, Tabular) */}
+          {/* 4-Column KPI Metric Strip (Single-Elevation, Pastel Accents, Tabular) */}
           <section className="grid grid-cols-2 xl:grid-cols-4 gap-2.5 sm:gap-3.5">
             {/* KPI 1: Weekly Total Score */}
             <button
@@ -3664,31 +3664,35 @@ export default function App() {
                 setShowIncompleteOnly(false);
                 setActiveTab('board');
               }}
-              className={`text-left bg-white hover:bg-slate-50/70 transition-colors rounded-2xl p-3 sm:p-5 border flex flex-col justify-between gap-2 sm:gap-3 ${
+              className={`text-left bg-white/95 hover:bg-white transition-all rounded-2xl p-3 sm:p-5 border shadow-[0_2px_12px_-4px_rgba(68,64,60,0.06)] flex flex-col justify-between gap-2 sm:gap-3 ${
                 activeTab === 'board' && !showIncompleteOnly
                   ? isSuhyun
-                    ? 'border-blue-500 ring-1 ring-blue-500/20'
-                    : 'border-rose-500 ring-1 ring-rose-500/20'
-                  : 'border-slate-200/90'
+                    ? 'border-[#7DA7E8] ring-2 ring-[#DCE9FC]'
+                    : 'border-[#E58FA3] ring-2 ring-[#FCE3EA]'
+                  : 'border-[#EAE6E0]'
               }`}
             >
               <div className="flex items-center justify-between w-full gap-1">
-                <span className="text-[11px] sm:text-xs font-semibold text-slate-500 truncate">
+                <span className="text-[11px] sm:text-xs font-semibold text-stone-500 truncate">
                   {isViewingCurrentWeek ? '이번 주 획득 점수' : '해당 주 획득 점수'}
                 </span>
-                <TrendingUp
-                  className={`w-3.5 h-3.5 sm:w-4 sm:h-4 shrink-0 ${isSuhyun ? 'text-blue-600' : 'text-rose-600'}`}
-                />
+                <span
+                  className={`w-6 h-6 sm:w-7 sm:h-7 rounded-lg flex items-center justify-center shrink-0 ${
+                    isSuhyun ? 'bg-[#EBF3FF] text-[#4C7FD4]' : 'bg-[#FFF0F4] text-[#D15C7B]'
+                  }`}
+                >
+                  <TrendingUp className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                </span>
               </div>
               <div className="flex items-baseline gap-1 sm:gap-1.5 tabular-nums">
-                <span className="text-xl sm:text-3xl font-bold tracking-tight text-slate-900">
+                <span className="text-xl sm:text-3xl font-bold tracking-tight text-[#2D2A32]">
                   {scoreSummary.totalScore}
                 </span>
-                <span className="text-xs sm:text-sm font-medium text-slate-400">
+                <span className="text-xs sm:text-sm font-medium text-stone-400">
                   / {scoreSummary.effectiveWeeklyMaxScore}점
                 </span>
               </div>
-              <div className="text-[11px] sm:text-xs text-slate-500 pt-2 sm:pt-2.5 border-t border-slate-100 w-full tabular-nums truncate">
+              <div className="text-[11px] sm:text-xs text-stone-500 pt-2 sm:pt-2.5 border-t border-[#F2EFE9] w-full tabular-nums truncate">
                 평일 {scoreSummary.weekdayScore} · 보충 +{scoreSummary.weekendMakeupScore}
               </div>
             </button>
@@ -3700,23 +3704,25 @@ export default function App() {
                 setActiveTab('board');
                 setShowIncompleteOnly(true);
               }}
-              className={`text-left bg-white hover:bg-slate-50/70 transition-colors rounded-2xl p-3 sm:p-5 border flex flex-col justify-between gap-2 sm:gap-3 ${
+              className={`text-left bg-white/95 hover:bg-white transition-all rounded-2xl p-3 sm:p-5 border shadow-[0_2px_12px_-4px_rgba(68,64,60,0.06)] flex flex-col justify-between gap-2 sm:gap-3 ${
                 activeTab === 'board' && showIncompleteOnly
-                  ? 'border-amber-500 ring-1 ring-amber-500/20'
-                  : 'border-slate-200/90'
+                  ? 'border-[#F0B860] ring-2 ring-[#FDEECB]'
+                  : 'border-[#EAE6E0]'
               }`}
             >
               <div className="flex items-center justify-between w-full gap-1">
-                <span className="text-[11px] sm:text-xs font-semibold text-slate-500 truncate">주말 보충 가능</span>
-                <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-amber-600 shrink-0" />
+                <span className="text-[11px] sm:text-xs font-semibold text-stone-500 truncate">주말 보충 가능</span>
+                <span className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-[#FEF2D6] text-[#B87214] flex items-center justify-center shrink-0">
+                  <Sparkles className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                </span>
               </div>
               <div className="flex items-baseline gap-1 sm:gap-1.5 tabular-nums">
-                <span className="text-xl sm:text-3xl font-bold tracking-tight text-amber-600">
+                <span className="text-xl sm:text-3xl font-bold tracking-tight text-[#B87214]">
                   +{scoreSummary.incompletePotentialScore}
                 </span>
-                <span className="text-xs sm:text-sm font-medium text-slate-400">점 가능</span>
+                <span className="text-xs sm:text-sm font-medium text-stone-400">점 가능</span>
               </div>
-              <div className="text-[11px] sm:text-xs text-slate-500 pt-2 sm:pt-2.5 border-t border-slate-100 w-full tabular-nums truncate">
+              <div className="text-[11px] sm:text-xs text-stone-500 pt-2 sm:pt-2.5 border-t border-[#F2EFE9] w-full tabular-nums truncate">
                 미완료 {scoreSummary.incompleteCount}건 · 모아보기
               </div>
             </button>
@@ -3725,32 +3731,34 @@ export default function App() {
             <button
               type="button"
               onClick={() => setActiveTab('youtube')}
-              className={`text-left bg-white hover:bg-slate-50/70 transition-colors rounded-2xl p-3 sm:p-5 border flex flex-col justify-between gap-2 sm:gap-3 ${
+              className={`text-left bg-white/95 hover:bg-white transition-all rounded-2xl p-3 sm:p-5 border shadow-[0_2px_12px_-4px_rgba(68,64,60,0.06)] flex flex-col justify-between gap-2 sm:gap-3 ${
                 activeTab === 'youtube'
-                  ? 'border-red-500 ring-1 ring-red-500/20'
-                  : 'border-slate-200/90'
+                  ? 'border-[#E87A72] ring-2 ring-[#FCDEDB]'
+                  : 'border-[#EAE6E0]'
               }`}
             >
               <div className="flex items-center justify-between w-full gap-1">
-                <span className="text-[11px] sm:text-xs font-semibold text-slate-500 truncate">주말 유튜브 잔여</span>
-                <Youtube className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-red-600 shrink-0" />
+                <span className="text-[11px] sm:text-xs font-semibold text-stone-500 truncate">주말 유튜브 잔여</span>
+                <span className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-[#FFEAE8] text-[#C94F47] flex items-center justify-center shrink-0">
+                  <Youtube className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                </span>
               </div>
               <div className="flex items-baseline gap-1.5 sm:gap-2 tabular-nums">
-                <span className="text-xl sm:text-3xl font-bold tracking-tight text-slate-900">
+                <span className="text-xl sm:text-3xl font-bold tracking-tight text-[#2D2A32]">
                   {scoreSummary.remainingMinutes}분
                 </span>
-                <span className="text-[11px] sm:text-xs font-medium text-slate-400 truncate">
+                <span className="text-[11px] sm:text-xs font-medium text-stone-400 truncate">
                   ({formatMinutesReadable(scoreSummary.remainingMinutes)})
                 </span>
               </div>
               <div className="w-full space-y-1 sm:space-y-1.5 pt-1">
-                <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                <div className="w-full bg-[#F2EFEA] h-1.5 rounded-full overflow-hidden">
                   <div
-                    className="bg-red-600 h-full rounded-full transition-all duration-300"
+                    className="bg-[#E87A72] h-full rounded-full transition-all duration-300"
                     style={{ width: `${youtubeRemainingRatio}%` }}
                   />
                 </div>
-                <div className="text-[11px] text-slate-400 tabular-nums truncate">
+                <div className="text-[11px] text-stone-400 tabular-nums truncate">
                   총 {scoreSummary.totalEarnedMinutes}분 중 {scoreSummary.usedMinutes}분 시청
                 </div>
               </div>
@@ -3760,34 +3768,36 @@ export default function App() {
             <button
               type="button"
               onClick={() => setActiveTab('sticker')}
-              className={`text-left bg-white hover:bg-slate-50/70 transition-colors rounded-2xl p-3 sm:p-5 border flex flex-col justify-between gap-2 sm:gap-3 ${
+              className={`text-left bg-white/95 hover:bg-white transition-all rounded-2xl p-3 sm:p-5 border shadow-[0_2px_12px_-4px_rgba(68,64,60,0.06)] flex flex-col justify-between gap-2 sm:gap-3 ${
                 activeTab === 'sticker'
-                  ? 'border-violet-500 ring-1 ring-violet-500/20'
-                  : 'border-slate-200/90'
+                  ? 'border-[#A78BFA] ring-2 ring-[#ECE5FD]'
+                  : 'border-[#EAE6E0]'
               }`}
             >
               <div className="flex items-center justify-between w-full gap-1">
-                <span className="text-[11px] sm:text-xs font-semibold text-slate-500 truncate">
+                <span className="text-[11px] sm:text-xs font-semibold text-stone-500 truncate">
                   칭찬스티커 ({currentData.stickerRound}회차)
                 </span>
-                <Award className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-violet-600 shrink-0" />
+                <span className="w-6 h-6 sm:w-7 sm:h-7 rounded-lg bg-[#F2ECFE] text-[#7D63C9] flex items-center justify-center shrink-0">
+                  <Award className="w-3.5 h-3.5 sm:w-4 sm:h-4" />
+                </span>
               </div>
               <div className="flex items-baseline gap-1 sm:gap-1.5 tabular-nums">
-                <span className="text-xl sm:text-3xl font-bold tracking-tight text-slate-900">
+                <span className="text-xl sm:text-3xl font-bold tracking-tight text-[#2D2A32]">
                   {(currentData.stickers || []).length}
                 </span>
-                <span className="text-xs sm:text-sm font-medium text-slate-400">/ 100개</span>
+                <span className="text-xs sm:text-sm font-medium text-stone-400">/ 100개</span>
               </div>
               <div className="w-full space-y-1 sm:space-y-1.5 pt-1">
-                <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden">
+                <div className="w-full bg-[#F2EFEA] h-1.5 rounded-full overflow-hidden">
                   <div
-                    className="bg-violet-600 h-full rounded-full transition-all duration-300"
+                    className="bg-[#9B82E0] h-full rounded-full transition-all duration-300"
                     style={{
                       width: `${Math.min(100, (currentData.stickers || []).length)}%`
                     }}
                   />
                 </div>
-                <div className="text-[11px] text-slate-400 truncate">
+                <div className="text-[11px] text-stone-400 truncate">
                   목표: {currentData.rewardGoal}
                 </div>
               </div>

@@ -224,14 +224,14 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
   return (
     <section className="space-y-6">
       {/* Cloud Sync Status (Cloudflare KV / D1) */}
-      <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200/90 space-y-4">
-        <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-100">
+      <div className="bg-white/95 rounded-2xl p-4 sm:p-6 border border-[#EAE6E0] shadow-[0_2px_12px_-4px_rgba(68,64,60,0.06)] space-y-4">
+        <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-[#F2EFE9]">
           <div className="flex items-center gap-3">
             <div
               className={`w-10 h-10 rounded-xl flex items-center justify-center shrink-0 ${
                 storageType !== 'none' && syncStatus !== 'error'
-                  ? 'bg-emerald-50 text-emerald-700'
-                  : 'bg-slate-100 text-slate-600'
+                  ? 'bg-[#DCF5EA] text-[#176448]'
+                  : 'bg-[#F3F0EB] text-stone-600'
               }`}
             >
               {storageType !== 'none' && syncStatus !== 'error' ? (
@@ -241,10 +241,10 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
               )}
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900">
+              <h2 className="text-base font-bold text-[#2D2A32]">
                 클라우드 동기화 상태 (Cloudflare KV / D1)
               </h2>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-stone-500">
                 엄마·아빠 휴대폰, 태블릿, PC 어디서 접속해도 동일한 점수와 스티커가 유지됩니다.
               </p>
             </div>
@@ -254,7 +254,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
             type="button"
             onClick={onManualSync}
             disabled={syncStatus === 'syncing' || syncStatus === 'loading'}
-            className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-400 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+            className="px-4 py-2 rounded-xl bg-[#4B4670] hover:bg-[#3D385C] disabled:bg-stone-300 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
           >
             <RefreshCw
               className={`w-3.5 h-3.5 ${
@@ -266,27 +266,27 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         </div>
 
         <div className="grid grid-cols-2 lg:grid-cols-4 gap-2.5 sm:gap-3 text-xs">
-          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1">
-            <div className="text-slate-400 font-semibold">연결 저장소</div>
-            <div className="font-bold text-slate-900">{storageLabel}</div>
+          <div className="p-3.5 rounded-xl bg-[#FAF8F5] border border-[#EAE6E0] space-y-1">
+            <div className="text-stone-400 font-semibold">연결 저장소</div>
+            <div className="font-bold text-[#2D2A32]">{storageLabel}</div>
           </div>
-          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1">
-            <div className="text-slate-400 font-semibold">동기화 상태</div>
-            <div className="font-bold text-slate-900">{syncStatusLabel}</div>
+          <div className="p-3.5 rounded-xl bg-[#FAF8F5] border border-[#EAE6E0] space-y-1">
+            <div className="text-stone-400 font-semibold">동기화 상태</div>
+            <div className="font-bold text-[#2D2A32]">{syncStatusLabel}</div>
           </div>
-          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1">
-            <div className="text-slate-400 font-semibold">최근 동기화 시각</div>
-            <div className="font-bold text-slate-900 tabular-nums">{lastSyncedLabel}</div>
+          <div className="p-3.5 rounded-xl bg-[#FAF8F5] border border-[#EAE6E0] space-y-1">
+            <div className="text-stone-400 font-semibold">최근 동기화 시각</div>
+            <div className="font-bold text-[#2D2A32] tabular-nums">{lastSyncedLabel}</div>
           </div>
-          <div className="p-3.5 rounded-xl bg-slate-50 border border-slate-200/80 space-y-1">
-            <div className="text-slate-400 font-semibold">활성 부모님 기기</div>
+          <div className="p-3.5 rounded-xl bg-[#FAF8F5] border border-[#EAE6E0] space-y-1">
+            <div className="text-stone-400 font-semibold">활성 부모님 기기</div>
             <div
               className={`font-bold ${
                 isCurrentDeviceOwner
-                  ? 'text-emerald-700'
+                  ? 'text-[#176448]'
                   : activeParentSession
-                  ? 'text-amber-700'
-                  : 'text-slate-700'
+                  ? 'text-[#9A5B13]'
+                  : 'text-stone-600'
               }`}
             >
               {parentSessionLabel}
@@ -295,31 +295,31 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         </div>
 
         {storageType === 'none' && (
-          <div className="p-3.5 rounded-xl bg-amber-50/80 border border-amber-200/80 text-xs text-amber-900 leading-relaxed">
+          <div className="p-3.5 rounded-xl bg-[#FEF6E4] border border-[#F6DFAC] text-xs text-[#8A5615] leading-relaxed">
             현재 Cloudflare KV 또는 D1 바인딩이 연결되지 않아 이 기기의 브라우저(localStorage)에만 저장되고 있습니다. Cloudflare Pages 설정에서 <code className="font-mono font-semibold">KIDS_EDU_KV</code> 바인딩을 추가하면 모든 기기 간 자동 동기화가 활성화됩니다.
           </div>
         )}
       </div>
 
       {/* Parent PIN Security Management */}
-      <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200/90 space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-100">
+      <div className="bg-white/95 rounded-2xl p-4 sm:p-6 border border-[#EAE6E0] shadow-[0_2px_12px_-4px_rgba(68,64,60,0.06)] space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-[#F2EFE9]">
           <div className="flex items-center gap-3">
-            <div className="w-10 h-10 rounded-xl bg-slate-100 text-slate-700 flex items-center justify-center shrink-0">
+            <div className="w-10 h-10 rounded-xl bg-[#F3F0EB] text-[#4B4670] flex items-center justify-center shrink-0">
               <KeyRound className="w-5 h-5" />
             </div>
             <div>
-              <h2 className="text-base font-bold text-slate-900">
+              <h2 className="text-base font-bold text-[#2D2A32]">
                 부모님 모드 비밀번호 설정 관리
               </h2>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-stone-500">
                 숫자, 영문(대·소문자), 특수문자를 조합해 4자리 이상으로 설정할 수 있습니다.
               </p>
             </div>
           </div>
 
           {isParentMode && (
-            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700">
+            <span className="inline-flex items-center gap-1.5 text-xs font-semibold text-[#176448]">
               <ShieldCheck className="w-4 h-4" />
               <span>부모님 모드 인증됨</span>
             </span>
@@ -330,12 +330,12 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 items-start">
             <form
               onSubmit={onSaveNewPin}
-              className="bg-slate-50/80 p-4 sm:p-5 rounded-xl border border-slate-200/80 space-y-3.5"
+              className="bg-[#FAF8F5] p-4 sm:p-5 rounded-xl border border-[#EAE6E0] space-y-3.5"
             >
-              <h3 className="text-sm font-bold text-slate-900">새 비밀번호로 변경</h3>
+              <h3 className="text-sm font-bold text-[#2D2A32]">새 비밀번호로 변경</h3>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-600 block">
+                <label className="text-xs font-semibold text-stone-600 block">
                   현재 비밀번호
                 </label>
                 <input
@@ -346,12 +346,12 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                     setPinError('');
                   }}
                   placeholder="현재 비밀번호 입력"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-slate-900"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-[#DDD7CF] bg-white text-sm font-semibold text-[#2D2A32] focus:outline-none focus:ring-2 focus:ring-[#8B82C4]"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-600 block">
+                <label className="text-xs font-semibold text-stone-600 block">
                   새 비밀번호 (4자리 이상 · 숫자/영문/특수문자 가능)
                 </label>
                 <input
@@ -362,12 +362,12 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                     setPinError('');
                   }}
                   placeholder="새 비밀번호 입력"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-slate-900"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-[#DDD7CF] bg-white text-sm font-semibold text-[#2D2A32] focus:outline-none focus:ring-2 focus:ring-[#8B82C4]"
                 />
               </div>
 
               <div className="space-y-1">
-                <label className="text-xs font-semibold text-slate-600 block">
+                <label className="text-xs font-semibold text-stone-600 block">
                   새 비밀번호 확인
                 </label>
                 <input
@@ -378,41 +378,41 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                     setPinError('');
                   }}
                   placeholder="새 비밀번호 다시 입력"
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 bg-white text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-slate-900"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-[#DDD7CF] bg-white text-sm font-semibold text-[#2D2A32] focus:outline-none focus:ring-2 focus:ring-[#8B82C4]"
                 />
               </div>
 
-              <label className="flex items-center gap-2 text-xs font-medium text-slate-600 cursor-pointer select-none pt-1">
+              <label className="flex items-center gap-2 text-xs font-medium text-stone-600 cursor-pointer select-none pt-1">
                 <input
                   type="checkbox"
                   checked={showPinText}
                   onChange={(e) => setShowPinText(e.target.checked)}
-                  className="rounded border-slate-300"
+                  className="rounded border-stone-300"
                 />
                 <span>입력한 비밀번호 표시</span>
               </label>
 
               {pinError && (
-                <div className="p-2.5 rounded-xl bg-red-50 border border-red-200 text-xs font-semibold text-red-600">
+                <div className="p-2.5 rounded-xl bg-[#FFF0EF] border border-[#F9C8C4] text-xs font-semibold text-[#B8413A]">
                   {pinError}
                 </div>
               )}
 
               <button
                 type="submit"
-                className="w-full py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold transition-colors"
+                className="w-full py-2.5 rounded-xl bg-[#4B4670] hover:bg-[#3D385C] text-white text-xs font-semibold transition-colors"
               >
                 비밀번호 변경 저장
               </button>
             </form>
 
-            <div className="p-4 sm:p-5 rounded-xl border border-slate-200/80 bg-white space-y-4 text-xs text-slate-600 leading-relaxed">
+            <div className="p-4 sm:p-5 rounded-xl border border-[#EAE6E0] bg-white space-y-4 text-xs text-stone-600 leading-relaxed">
               <div className="space-y-3">
-                <h4 className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                  <User className="w-4 h-4 text-slate-700" />
+                <h4 className="text-sm font-bold text-[#2D2A32] flex items-center gap-1.5">
+                  <User className="w-4 h-4 text-[#4B4670]" />
                   <span>자녀 로그인 비밀번호 관리</span>
                 </h4>
-                <p className="text-xs text-slate-500">
+                <p className="text-xs text-stone-500">
                   자녀용 로그인 시 사용하는 비밀번호입니다. (초기값: 수현 8864 · 다현 7749)
                 </p>
 
@@ -427,16 +427,16 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                         e.preventDefault();
                         onSaveChildPin(ck, val);
                       }}
-                      className="flex items-center gap-2 p-2.5 rounded-xl bg-slate-50 border border-slate-200/80"
+                      className="flex items-center gap-2 p-2.5 rounded-xl bg-[#FAF8F5] border border-[#EAE6E0]"
                     >
                       <span
                         className={`w-6 h-6 rounded-lg text-xs font-bold flex items-center justify-center text-white shrink-0 ${
-                          ck === 'suhyun' ? 'bg-blue-600' : 'bg-rose-600'
+                          ck === 'suhyun' ? 'bg-[#6B9CE8]' : 'bg-[#E2849B]'
                         }`}
                       >
                         {cfg.name.slice(0, 1)}
                       </span>
-                      <span className="text-xs font-bold text-slate-900 w-10 shrink-0">
+                      <span className="text-xs font-bold text-[#2D2A32] w-10 shrink-0">
                         {cfg.name}
                       </span>
                       <input
@@ -449,12 +449,12 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                           }))
                         }
                         placeholder="4자리 이상"
-                        className="flex-1 min-w-0 px-3 py-1.5 rounded-lg border border-slate-300 bg-white text-xs font-bold tracking-wider focus:outline-none focus:ring-2 focus:ring-slate-900"
+                        className="flex-1 min-w-0 px-3 py-1.5 rounded-lg border border-[#DDD7CF] bg-white text-xs font-bold text-[#2D2A32] tracking-wider focus:outline-none focus:ring-2 focus:ring-[#8B82C4]"
                       />
                       <button
                         type="submit"
                         disabled={!changed || val.trim().length < 4}
-                        className="px-3 py-1.5 rounded-lg bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0"
+                        className="px-3 py-1.5 rounded-lg bg-[#4B4670] hover:bg-[#3D385C] disabled:bg-stone-300 disabled:cursor-not-allowed text-white text-[11px] font-semibold transition-colors whitespace-nowrap shrink-0"
                       >
                         저장
                       </button>
@@ -463,8 +463,8 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                 })}
               </div>
 
-              <div className="pt-3 border-t border-slate-100 space-y-2">
-                <h4 className="text-sm font-bold text-slate-900">보안 및 운영 안내</h4>
+              <div className="pt-3 border-t border-[#F2EFE9] space-y-2">
+                <h4 className="text-sm font-bold text-[#2D2A32]">보안 및 운영 안내</h4>
                 <ul className="space-y-1.5 list-disc list-inside">
                   <li>변경한 비밀번호는 클라우드에 즉시 저장되어 모든 기기에서 적용됩니다.</li>
                   <li>채점이나 시간 차감을 마친 뒤에는 상단의 로그아웃 버튼으로 잠금하세요.</li>
@@ -474,20 +474,20 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
             </div>
           </div>
         ) : (
-          <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+          <div className="bg-[#FAF8F5] border border-[#EAE6E0] rounded-xl p-5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
             <div className="space-y-1">
-              <div className="text-sm font-bold text-slate-900 flex items-center gap-1.5">
-                <Lock className="w-4 h-4 text-amber-600" />
+              <div className="text-sm font-bold text-[#2D2A32] flex items-center gap-1.5">
+                <Lock className="w-4 h-4 text-[#C28024]" />
                 <span>비밀번호 변경은 부모님 로그인 후 가능합니다</span>
               </div>
-              <p className="text-xs text-slate-500">
+              <p className="text-xs text-stone-500">
                 현재 부모님 비밀번호로 로그인하면 새 비밀번호로 변경할 수 있습니다. (초기값: 1234)
               </p>
             </div>
             <button
               type="button"
               onClick={onOpenLogin}
-              className="px-4 py-2.5 rounded-xl bg-slate-900 hover:bg-slate-800 text-white text-xs font-semibold shrink-0 transition-colors self-start sm:self-auto"
+              className="px-4 py-2.5 rounded-xl bg-[#4B4670] hover:bg-[#3D385C] text-white text-xs font-semibold shrink-0 transition-colors self-start sm:self-auto"
             >
               부모님 암호 로그인
             </button>
@@ -496,13 +496,13 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
       </div>
 
       {/* Scoring Matrix & Data Reset */}
-      <div className="bg-white rounded-2xl p-4 sm:p-6 border border-slate-200/90 space-y-5">
-        <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-slate-100">
+      <div className="bg-white/95 rounded-2xl p-4 sm:p-6 border border-[#EAE6E0] shadow-[0_2px_12px_-4px_rgba(68,64,60,0.06)] space-y-5">
+        <div className="flex flex-wrap items-center justify-between gap-3 pb-4 border-b border-[#F2EFE9]">
           <div>
-            <h2 className="text-base font-bold text-slate-900">
+            <h2 className="text-base font-bold text-[#2D2A32]">
               수현 · 다현 평가 항목 및 배점 기준표
             </h2>
-            <p className="text-xs text-slate-500">
+            <p className="text-xs text-stone-500">
               평일 획득 점수 + 주말 보충 가점 = 주말 유튜브 시청 가능 시간 (1점 = 1분)
               {!isParentMode && ' · 배점 수정은 부모님 로그인 후 가능'}
             </p>
@@ -513,7 +513,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
               <button
                 type="button"
                 onClick={onPreviewDynamicScoring}
-                className="px-3 py-2 rounded-xl bg-blue-50 hover:bg-blue-100 border border-blue-200 text-blue-800 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                className="px-3 py-2 rounded-xl bg-[#EEF4FF] hover:bg-[#DFECFF] border border-[#C9DFFA] text-[#2F5FA8] text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
               >
                 <Sparkles className="w-3.5 h-3.5" />
                 <span>자동 배점 계산 미리보기</span>
@@ -522,7 +522,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                 type="button"
                 disabled={isDefaultDraftScores}
                 onClick={handleLoadDefaultScores}
-                className="px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed text-slate-700 text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
+                className="px-3 py-2 rounded-xl bg-[#F5F2ED] hover:bg-[#EAE5DD] disabled:opacity-50 disabled:cursor-not-allowed text-stone-700 text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
               >
                 기본 배점 불러오기
               </button>
@@ -530,7 +530,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                 <button
                   type="button"
                   onClick={handleCancelScoreEdits}
-                  className="px-3 py-2 rounded-xl bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
+                  className="px-3 py-2 rounded-xl bg-white hover:bg-[#FAF8F5] border border-[#E5E0D8] text-stone-700 text-xs font-semibold transition-colors whitespace-nowrap shrink-0"
                 >
                   취소
                 </button>
@@ -539,7 +539,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                 type="button"
                 disabled={!hasUnsavedChanges}
                 onClick={handleSaveScoresClick}
-                className="px-4 py-2 rounded-xl bg-slate-900 hover:bg-slate-800 disabled:bg-slate-300 disabled:cursor-not-allowed text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                className="px-4 py-2 rounded-xl bg-[#4B4670] hover:bg-[#3D385C] disabled:bg-stone-300 disabled:cursor-not-allowed text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
               >
                 <Check className="w-3.5 h-3.5" />
                 <span>배점 변경 저장</span>
@@ -547,7 +547,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
               <button
                 type="button"
                 onClick={onResetAllDataExceptStickers}
-                className="px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
+                className="px-4 py-2 rounded-xl bg-[#E26D65] hover:bg-[#D35B53] text-white text-xs font-semibold inline-flex items-center gap-1.5 transition-colors whitespace-nowrap shrink-0"
               >
                 <RotateCcw className="w-3.5 h-3.5" />
                 <span>데이터 초기화 (칭찬스티커 제외)</span>
@@ -557,8 +557,8 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
         </div>
 
         {isParentMode && (
-          <div className="p-3.5 rounded-xl bg-blue-50/70 border border-blue-200/80 text-xs text-blue-900 flex items-start gap-2.5 leading-relaxed">
-            <Info className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+          <div className="p-3.5 rounded-xl bg-[#F3F6FF] border border-[#D6E2FC] text-xs text-[#2F4A8A] flex items-start gap-2.5 leading-relaxed">
+            <Info className="w-4 h-4 text-[#5A87D1] shrink-0 mt-0.5" />
             <span>
               배점을 수정하고 <strong>배점 변경 저장</strong>을 누르면 앞으로 새로 체크하는 항목부터 새 배점이 적용됩니다. 이미 완료한 항목의 점수는 기존 배점 그대로 유지됩니다.
             </span>
@@ -583,28 +583,28 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
             return (
               <div
                 key={ck}
-                className="rounded-xl border border-slate-200/90 overflow-hidden bg-white"
+                className="rounded-xl border border-[#EAE6E0] overflow-hidden bg-white"
               >
-                <div className="px-4 py-3.5 bg-slate-50 border-b border-slate-200/80 flex items-center justify-between gap-2">
+                <div className="px-4 py-3.5 bg-[#FAF8F5] border-b border-[#EAE6E0] flex items-center justify-between gap-2">
                   <div className="flex items-center gap-2">
                     <span
                       className={`w-6 h-6 rounded-lg text-xs font-bold flex items-center justify-center text-white ${
-                        isSuhyun ? 'bg-blue-600' : 'bg-rose-600'
+                        isSuhyun ? 'bg-[#6B9CE8]' : 'bg-[#E2849B]'
                       }`}
                     >
                       {cfg.name.slice(0, 1)}
                     </span>
-                    <span className="text-sm font-bold text-slate-900">
+                    <span className="text-sm font-bold text-[#2D2A32]">
                       {cfg.name} · {cfg.info}
                     </span>
                   </div>
-                  <span className="text-xs font-semibold text-slate-600 tabular-nums">
+                  <span className="text-xs font-semibold text-stone-600 tabular-nums">
                     일일 {dailyTotal}점 · 주간 {weeklyTotal}점
                   </span>
                 </div>
 
-                <div className="divide-y divide-slate-100 text-xs">
-                  <div className="px-4 py-2 bg-slate-50/50 font-semibold text-slate-600 flex justify-between tabular-nums">
+                <div className="divide-y divide-[#F3EFE9] text-xs">
+                  <div className="px-4 py-2 bg-[#FAF8F5]/70 font-semibold text-stone-600 flex justify-between tabular-nums">
                     <span>개별 학습과목 ({cfg.studyItems.length}과목)</span>
                     <span>일일 {studyDaily}점</span>
                   </div>
@@ -616,13 +616,13 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                     return (
                       <div
                         key={it.id}
-                        className="px-4 py-2.5 flex items-center justify-between gap-2 text-slate-700"
+                        className="px-4 py-2.5 flex items-center justify-between gap-2 text-stone-700"
                       >
                         <span className="font-medium">{it.name}</span>
                         {isParentMode ? (
                           <div className="flex items-center gap-2 shrink-0">
                             {isModified && (
-                              <span className="text-[11px] text-slate-400 tabular-nums">
+                              <span className="text-[11px] text-stone-400 tabular-nums">
                                 기존 {it.score}점
                               </span>
                             )}
@@ -637,21 +637,21 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                                 }
                                 onBlur={() => handleScoreInputBlur(ck, it.id, it.score)}
                                 aria-label={`${cfg.name} ${it.name} 배점`}
-                                className={`w-full pl-2.5 pr-6 py-1 rounded-lg border text-right font-mono font-semibold text-slate-900 tabular-nums focus:outline-none focus:ring-2 ${
+                                className={`w-full pl-2.5 pr-6 py-1 rounded-lg border text-right font-mono font-semibold text-[#2D2A32] tabular-nums focus:outline-none focus:ring-2 ${
                                   isModified
                                     ? isSuhyun
-                                      ? 'border-blue-500 bg-blue-50/40 focus:ring-blue-500'
-                                      : 'border-rose-500 bg-rose-50/40 focus:ring-rose-500'
-                                    : 'border-slate-300 bg-white focus:ring-slate-900'
+                                      ? 'border-[#6B9CE8] bg-[#EBF3FF]/60 focus:ring-[#6B9CE8]'
+                                      : 'border-[#E2849B] bg-[#FFF0F4]/60 focus:ring-[#E2849B]'
+                                    : 'border-[#DDD7CF] bg-white focus:ring-[#8B82C4]'
                                 }`}
                               />
-                              <span className="absolute right-2 top-1 text-[11px] text-slate-400 pointer-events-none">
+                              <span className="absolute right-2 top-1 text-[11px] text-stone-400 pointer-events-none">
                                 점
                               </span>
                             </div>
                           </div>
                         ) : (
-                          <span className="font-mono font-semibold text-slate-900 tabular-nums">
+                          <span className="font-mono font-semibold text-[#2D2A32] tabular-nums">
                             {it.score}점
                           </span>
                         )}
@@ -659,7 +659,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                     );
                   })}
 
-                  <div className="px-4 py-2 bg-slate-50/50 font-semibold text-slate-600 flex justify-between tabular-nums">
+                  <div className="px-4 py-2 bg-[#FAF8F5]/70 font-semibold text-stone-600 flex justify-between tabular-nums">
                     <span>공통 생활습관 ({cfg.habitItems.length}항목)</span>
                     <span>일일 {habitDaily}점</span>
                   </div>
@@ -671,12 +671,12 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                     return (
                       <div
                         key={it.id}
-                        className="px-4 py-2.5 flex items-center justify-between gap-2 text-slate-700"
+                        className="px-4 py-2.5 flex items-center justify-between gap-2 text-stone-700"
                       >
                         <span className="font-medium">
                           {it.shortName || it.name}
                           {it.subItems && (
-                            <span className="block text-[11px] text-slate-400 font-normal">
+                            <span className="block text-[11px] text-stone-400 font-normal">
                               {it.subItems.join(', ')}
                             </span>
                           )}
@@ -684,7 +684,7 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                         {isParentMode ? (
                           <div className="flex items-center gap-2 shrink-0">
                             {isModified && (
-                              <span className="text-[11px] text-slate-400 tabular-nums">
+                              <span className="text-[11px] text-stone-400 tabular-nums">
                                 기존 {it.score}점
                               </span>
                             )}
@@ -699,21 +699,21 @@ export const SettingsTab: React.FC<SettingsTabProps> = ({
                                 }
                                 onBlur={() => handleScoreInputBlur(ck, it.id, it.score)}
                                 aria-label={`${cfg.name} ${it.shortName || it.name} 배점`}
-                                className={`w-full pl-2.5 pr-6 py-1 rounded-lg border text-right font-mono font-semibold text-slate-900 tabular-nums focus:outline-none focus:ring-2 ${
+                                className={`w-full pl-2.5 pr-6 py-1 rounded-lg border text-right font-mono font-semibold text-[#2D2A32] tabular-nums focus:outline-none focus:ring-2 ${
                                   isModified
                                     ? isSuhyun
-                                      ? 'border-blue-500 bg-blue-50/40 focus:ring-blue-500'
-                                      : 'border-rose-500 bg-rose-50/40 focus:ring-rose-500'
-                                    : 'border-slate-300 bg-white focus:ring-slate-900'
+                                      ? 'border-[#6B9CE8] bg-[#EBF3FF]/60 focus:ring-[#6B9CE8]'
+                                      : 'border-[#E2849B] bg-[#FFF0F4]/60 focus:ring-[#E2849B]'
+                                    : 'border-[#DDD7CF] bg-white focus:ring-[#8B82C4]'
                                 }`}
                               />
-                              <span className="absolute right-2 top-1 text-[11px] text-slate-400 pointer-events-none">
+                              <span className="absolute right-2 top-1 text-[11px] text-stone-400 pointer-events-none">
                                 점
                               </span>
                             </div>
                           </div>
                         ) : (
-                          <span className="font-mono font-semibold text-slate-900 tabular-nums shrink-0">
+                          <span className="font-mono font-semibold text-[#2D2A32] tabular-nums shrink-0">
                             {it.score}점
                           </span>
                         )}
