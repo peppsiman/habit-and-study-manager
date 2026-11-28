@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import {
   AlertCircle,
+  Bell,
+  BellOff,
   BellRing,
   CheckCircle2,
   Clock,
@@ -17,6 +19,7 @@ import {
 } from 'lucide-react';
 import { CHILDREN_CONFIG } from '../constants';
 import { ChildConfig, ChildData, ChildKey, ScoreSummary, TimersMap } from '../types';
+import { AlarmNotificationPermission } from '../utils/alarmAudio';
 import { formatMinutesReadable, formatTimer } from '../utils/scoreUtils';
 
 const TIMER_PRESET_MINUTES = [10, 15, 20, 30, 40, 60];
@@ -39,6 +42,8 @@ interface YoutubeTimerTabProps {
   onDeductYoutube: (minutes: string | number, memo: string) => boolean;
   onUndoWatchLog: (logId: string) => void;
   onOpenLogin: () => void;
+  notificationPermission: AlarmNotificationPermission;
+  onRequestNotificationPermission: () => void;
 }
 
 export const YoutubeTimerTab: React.FC<YoutubeTimerTabProps> = ({
@@ -58,7 +63,9 @@ export const YoutubeTimerTab: React.FC<YoutubeTimerTabProps> = ({
   onTestAlarmSound,
   onDeductYoutube,
   onUndoWatchLog,
-  onOpenLogin
+  onOpenLogin,
+  notificationPermission,
+  onRequestNotificationPermission
 }) => {
   const [customDeductInput, setCustomDeductInput] = useState('');
   const [watchMemoInput, setWatchMemoInput] = useState('');
@@ -100,11 +107,36 @@ export const YoutubeTimerTab: React.FC<YoutubeTimerTabProps> = ({
       <div className="bg-gradient-to-br from-[#F4F2FC] via-[#F8F6FD] to-[#EEF4FC] text-[#2D2A32] rounded-2xl p-4 sm:p-6 border border-[#DFDCF2] shadow-[0_4px_20px_-8px_rgba(75,70,112,0.12)] space-y-4 sm:space-y-5">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3.5 sm:gap-4 pb-4 border-b border-[#E3DFF4]">
           <div className="space-y-1">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2">
               <Clock className="w-4 h-4 text-[#7567B8] shrink-0" />
               <h2 className="text-base sm:text-lg font-bold tracking-tight text-[#2D2A32]">
                 수현 · 다현 유튜브 카운트다운 알림 타이머
               </h2>
+              {isParentMode && notificationPermission !== 'unsupported' && (
+                notificationPermission === 'granted' ? (
+                  <span className="px-2.5 py-0.5 rounded-full bg-[#DCF5EA] border border-[#B2E6D0] text-[#176448] text-[11px] font-semibold inline-flex items-center gap-1 whitespace-nowrap">
+                    <Bell className="w-3 h-3 shrink-0" />
+                    <span>백그라운드 알림 켜짐</span>
+                  </span>
+                ) : notificationPermission === 'default' ? (
+                  <button
+                    type="button"
+                    onClick={onRequestNotificationPermission}
+                    className="px-2.5 py-0.5 rounded-full bg-[#EFEBFD] hover:bg-[#E2DCFA] border border-[#D4CCF5] text-[#4B4670] text-[11px] font-semibold inline-flex items-center gap-1 transition-colors whitespace-nowrap"
+                  >
+                    <Bell className="w-3 h-3 shrink-0" />
+                    <span>백그라운드 알림 켜기</span>
+                  </button>
+                ) : (
+                  <span
+                    title="브라우저 사이트 설정에서 알림을 허용할 수 있습니다"
+                    className="px-2.5 py-0.5 rounded-full bg-[#FEF2D6] border border-[#F8DC9F] text-[#9A5B13] text-[11px] font-semibold inline-flex items-center gap-1 whitespace-nowrap"
+                  >
+                    <BellOff className="w-3 h-3 shrink-0" />
+                    <span>브라우저 알림 차단됨</span>
+                  </span>
+                )
+              )}
             </div>
             <p className="text-xs text-stone-500">
               최종 로그인된 부모님 기기에서만 타이머 시작·중지·시간 차감이 가능하며, 다른 기기에서 로그인하면 기존 기기는 자동 로그아웃됩니다.

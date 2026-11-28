@@ -93,10 +93,21 @@ import {
   sendParentSessionHeartbeat
 } from './utils/cloudSync';
 import {
+  AlarmNotificationPermission,
+  buildTimerEndMessage,
+  closeTimerCompleteNotifications,
+  forceStopAllAlarmAudio,
+  getAlarmNotificationPermission,
   playAlarmTestSound,
+  registerAlarmServiceWorker,
   releaseScreenWakeLock,
+  requestAlarmNotificationPermission,
   requestScreenWakeLock,
+  sendTimerCompleteNotification,
+  startBackgroundTicker,
+  startBackgroundTimerKeepAlive,
   startContinuousAlarmSound,
+  stopBackgroundTimerKeepAlive,
   unlockAlarmAudio
 } from './utils/alarmAudio';
 import { LoginScreen } from './components/LoginScreen';
@@ -229,6 +240,17 @@ export default function App() {
   const [lastSyncedAt, setLastSyncedAt] = useState<number | null>(null);
   const [activeParentSession, setActiveParentSession] = useState<ParentSessionInfo | null>(null);
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [notificationPermission, setNotificationPermission] = useState<AlarmNotificationPermission>(
+    () => getAlarmNotificationPermission()
+  );
+  const notifiedRingingRef = useRef<Record<ChildKey, boolean>>({
+    suhyun: false,
+    dahyun: false
+  });
+
+  useEffect(() => {
+    void registerAlarmServiceWorker();
+  }, []);
 
   const [toastMessage, setToastMessage] = useState<ToastState | null>(null);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogState | null>(null);
@@ -511,6 +533,9 @@ export default function App() {
 
   const forceLogoutDueToOtherDevice = useCallback(
     (remoteState?: CloudAppState | null) => {
+      forceStopAllAlarmAudio();
+      notifiedRingingRef.current = { suhyun: false, dahyun: false };
+      void closeTimerCompleteNotifications();
       myParentSessionIdRef.current = null;
       mySessionLoggedInAtRef.current = 0;
       activeAuthPinRef.current = '';
@@ -643,6 +668,9 @@ export default function App() {
       isAutoLoggingOutRef.current = true;
 
       cleanupMediaAndAudio(true);
+      forceStopAllAlarmAudio();
+      notifiedRingingRef.current = { suhyun: false, dahyun: false };
+      void closeTimerCompleteNotifications();
       setPinModalOpen(false);
       setClothesHelperModal(null);
       setConfirmDialog(null);
@@ -1139,28 +1167,95 @@ export default function App() {
     };
 
     tick();
-    const interval = setInterval(tick, 500);
-
-    return () => clearInterval(interval);
+    return startBackgroundTicker(tick, 500);
   }, [timers.suhyun.isRunning, timers.dahyun.isRunning]);
 
-  // Continuous melodic bell alarm loop ONLY on the active logged-in parent device
+  // Keep OS background media session alive while countdown is running on the parent device
   useEffect(() => {
-    const anyRinging =
-      isParentMode &&
-      Boolean(timers.suhyun.isAlarmRinging || timers.dahyun.isAlarmRinging);
-    if (!anyRinging) return;
+    const anyRunning = timers.suhyun.isRunning || timers.dahyun.isRunning;
+    const anyRinging = Boolean(timers.suhyun.isAlarmRinging || timers.dahyun.isAlarmRinging);
 
-    const stopAlarm = startContinuousAlarmSound(() => {
-      const snap = latestSyncSnapshotRef.current.timers;
-      return (
-        isParentModeRef.current &&
-        Boolean(snap.suhyun.isAlarmRinging || snap.dahyun.isAlarmRinging)
-      );
+    if (!isParentMode) {
+      stopBackgroundTimerKeepAlive();
+      return;
+    }
+
+    if (anyRunning && !anyRinging) {
+      const activeNames = (['suhyun', 'dahyun'] as ChildKey[])
+        .filter((ck) => timers[ck].isRunning)
+        .map((ck) => CHILDREN_CONFIG[ck].name)
+        .join('·');
+      startBackgroundTimerKeepAlive({
+        title: `${activeNames} 유튜브 타이머 실행 중`,
+        subtitle: '종료 시 백그라운드 알림음이 울립니다'
+      });
+    } else if (!anyRunning && !anyRinging) {
+      stopBackgroundTimerKeepAlive();
+    }
+  }, [
+    isParentMode,
+    timers.suhyun.isRunning,
+    timers.dahyun.isRunning,
+    timers.suhyun.isAlarmRinging,
+    timers.dahyun.isAlarmRinging
+  ]);
+
+  // Continuous melodic bell alarm loop & OS background notification ONLY on the active logged-in parent device
+  useEffect(() => {
+    const suhyunRinging = isParentMode && Boolean(timers.suhyun.isAlarmRinging);
+    const dahyunRinging = isParentMode && Boolean(timers.dahyun.isAlarmRinging);
+
+    (['suhyun', 'dahyun'] as ChildKey[]).forEach((ck) => {
+      const isChildRinging = ck === 'suhyun' ? suhyunRinging : dahyunRinging;
+      if (isChildRinging && !notifiedRingingRef.current[ck]) {
+        notifiedRingingRef.current[ck] = true;
+        const cfg = CHILDREN_CONFIG[ck];
+        const mins = timers[ck].targetMinutes || DEFAULT_TIMER_MINUTES;
+        void sendTimerCompleteNotification(
+          `${cfg.name} 유튜브 시청 시간 종료!`,
+          buildTimerEndMessage(cfg.name, mins),
+          `youtube-timer-alarm-${ck}`
+        );
+      } else if (!isChildRinging && notifiedRingingRef.current[ck]) {
+        notifiedRingingRef.current[ck] = false;
+        void closeTimerCompleteNotifications(`youtube-timer-alarm-${ck}`);
+      }
     });
 
+    if (!suhyunRinging && !dahyunRinging) return;
+
+    const ringingLabels = (['suhyun', 'dahyun'] as ChildKey[])
+      .filter((ck) => (ck === 'suhyun' ? suhyunRinging : dahyunRinging))
+      .map((ck) =>
+        buildTimerEndMessage(
+          CHILDREN_CONFIG[ck].name,
+          timers[ck].targetMinutes || DEFAULT_TIMER_MINUTES
+        )
+      )
+      .join(' / ');
+
+    const stopAlarm = startContinuousAlarmSound(
+      () => {
+        const snap = latestSyncSnapshotRef.current.timers;
+        return (
+          isParentModeRef.current &&
+          Boolean(snap.suhyun.isAlarmRinging || snap.dahyun.isAlarmRinging)
+        );
+      },
+      {
+        title: '유튜브 시청 시간 종료!',
+        body: ringingLabels
+      }
+    );
+
     return stopAlarm;
-  }, [isParentMode, timers.suhyun.isAlarmRinging, timers.dahyun.isAlarmRinging]);
+  }, [
+    isParentMode,
+    timers.suhyun.isAlarmRinging,
+    timers.dahyun.isAlarmRinging,
+    timers.suhyun.targetMinutes,
+    timers.dahyun.targetMinutes
+  ]);
 
   // Keep screen awake during countdown or ringing alarm on supported devices
   useEffect(() => {
@@ -1596,6 +1691,9 @@ export default function App() {
 
   const handleLogout = () => {
     cleanupMediaAndAudio(true);
+    forceStopAllAlarmAudio();
+    notifiedRingingRef.current = { suhyun: false, dahyun: false };
+    void closeTimerCompleteNotifications();
     const prevSessionId = myParentSessionIdRef.current;
     const wasParent = isParentModeRef.current;
     myParentSessionIdRef.current = null;
@@ -2451,6 +2549,13 @@ export default function App() {
         return;
       }
       unlockAlarmAudio();
+      startBackgroundTimerKeepAlive({
+        title: `${CHILDREN_CONFIG[childKey].name} 유튜브 타이머 실행 중`,
+        subtitle: '종료 시 백그라운드 알림음이 울립니다'
+      });
+      if (getAlarmNotificationPermission() === 'default') {
+        void requestAlarmNotificationPermission().then(setNotificationPermission);
+      }
     }
 
     const now = Date.now();
@@ -2606,6 +2711,19 @@ export default function App() {
     }
 
     unlockAlarmAudio();
+    const activeNames = [
+      canStartSuhyun || timers.suhyun.isRunning ? CHILDREN_CONFIG.suhyun.name : null,
+      canStartDahyun || timers.dahyun.isRunning ? CHILDREN_CONFIG.dahyun.name : null
+    ]
+      .filter(Boolean)
+      .join('·');
+    startBackgroundTimerKeepAlive({
+      title: `${activeNames || '수현·다현'} 유튜브 타이머 실행 중`,
+      subtitle: '종료 시 백그라운드 알림음이 울립니다'
+    });
+    if (getAlarmNotificationPermission() === 'default') {
+      void requestAlarmNotificationPermission().then(setNotificationPermission);
+    }
     const now = Date.now();
     setTimers((prev) => {
       const nextFor = (ck: ChildKey, shouldStart: boolean) => {
@@ -2659,6 +2777,19 @@ export default function App() {
     playAlarmTestSound();
     showToast('종료 알림음 테스트를 재생했습니다.', 'info');
   };
+
+  const handleRequestNotificationPermission = useCallback(async () => {
+    const next = await requestAlarmNotificationPermission();
+    setNotificationPermission(next);
+    if (next === 'granted') {
+      showToast('백그라운드 타이머 알림이 허용되었습니다.', 'success');
+    } else if (next === 'denied') {
+      showToast(
+        '브라우저 알림이 차단되어 있습니다. 브라우저 사이트 설정에서 알림을 허용해주세요.',
+        'warning'
+      );
+    }
+  }, [showToast]);
 
   const handleUndoWatchLog = (logId: string) => {
     if (!requireParentMode('기록 취소(복구)')) return;
@@ -3873,6 +4004,8 @@ export default function App() {
                   }
                   onUndoWatchLog={handleUndoWatchLog}
                   onOpenLogin={openLoginModal}
+                  notificationPermission={notificationPermission}
+                  onRequestNotificationPermission={() => void handleRequestNotificationPermission()}
                 />
               )}
 
